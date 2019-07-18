@@ -1,54 +1,15 @@
 package main
 
 // Type is Appliance Type
-type Type int
+type ApplianceType string
 
 const (
 	// IR is
-	IR = iota
+	ApplianceTypeIR ApplianceType = "IR"
 	// LIGHT is
-	LIGHT
+	ApplianceTypeLIGHT ApplianceType = "LIGHT"
 	// TV is
-	TV
+	ApplianceTypeTV ApplianceType = "TV"
 	// AirCon is
-	AirCon
+	ApplianceTypeAirCon ApplianceType = "AirCon"
 )
-
-func (t Type) String() string {
-	switch t {
-	case LIGHT:
-		return "LIGHT"
-	case TV:
-		return "RV"
-	case AirCon:
-		return "AirCon"
-	case IR:
-		return "IR"
-	default:
-		return "Unknown"
-	}
-}
-
-// MarshalYAML define custom marshaling for Type
-func (t Type) MarshalYAML() (interface{}, error) {
-	return t.String(), nil
-}
-
-// UnmarshalYAML define custom marshaling for Type
-func (t *Type) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	var aux interface{}
-	if err := unmarshal(&aux); err != nil {
-		return err
-	}
-	switch aux.(string) {
-	case "LIGHT":
-		*t = LIGHT
-	case "TV":
-		*t = TV
-	case "AirCon":
-		*t = AirCon
-	case "IR":
-		*t = IR
-	}
-	return nil
-}

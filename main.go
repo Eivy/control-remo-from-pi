@@ -44,18 +44,18 @@ func main() {
 				default:
 					tmp := in.Read()
 					if before != tmp {
-						if appliance.Trigger == SYNC {
+						if appliance.Trigger == TriggerSYNC {
 							ch <- tmp
-						} else if appliance.Trigger == TOGGLE {
+						} else if appliance.Trigger == TriggerTOGGLE {
 							if before == rpio.Low && tmp == rpio.High {
 								if out.Read() == rpio.Low {
-									if appliance.StatusType == REV {
+									if appliance.StatusType == StatusTypeREV {
 										ch <- rpio.Low
 									} else {
 										ch <- rpio.High
 									}
 								} else {
-									if appliance.StatusType == REV {
+									if appliance.StatusType == StatusTypeREV {
 										ch <- rpio.High
 									} else {
 										ch <- rpio.Low
@@ -71,21 +71,21 @@ func main() {
 		}()
 		go func() {
 			switch appliance.Type {
-			case LIGHT:
+			case ApplianceTypeLIGHT, ApplianceTypeTV:
 				for {
 					select {
 					case v := <-ch:
 						fmt.Println(v)
 						if v == rpio.High {
 							sendToRemo(appliance.ID, "on")
-							if appliance.StatusType == REV {
+							if appliance.StatusType == StatusTypeREV {
 								out.Write(rpio.Low)
 							} else {
 								out.Write(rpio.High)
 							}
 						} else {
 							sendToRemo(appliance.ID, "off")
-							if appliance.StatusType == REV {
+							if appliance.StatusType == StatusTypeREV {
 								out.Write(rpio.High)
 							} else {
 								out.Write(rpio.Low)
@@ -93,21 +93,21 @@ func main() {
 						}
 					}
 				}
-			case IR:
+			case ApplianceTypeIR:
 				for {
 					select {
 					case v := <-ch:
 						fmt.Println(v)
 						if v == rpio.High {
 							sendSignal(appliance.ID, appliance.OnSignal)
-							if appliance.StatusType == REV {
+							if appliance.StatusType == StatusTypeREV {
 								out.Write(rpio.Low)
 							} else {
 								out.Write(rpio.High)
 							}
 						} else {
 							sendSignal(appliance.ID, appliance.OffSignal)
-							if appliance.StatusType == REV {
+							if appliance.StatusType == StatusTypeREV {
 								out.Write(rpio.High)
 							} else {
 								out.Write(rpio.Low)
