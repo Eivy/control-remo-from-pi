@@ -1,17 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/go-yaml/yaml"
 	rpio "github.com/stianeikeland/go-rpio"
+	"github.com/tenntenn/natureremo"
 )
 
 var config Config
@@ -26,6 +25,8 @@ func main() {
 		log.Fatal(err)
 	}
 	err = yaml.Unmarshal(b, &config)
+	remoClient := natureremo.NewClient(config.User.ID)
+	ctx := context.Background()
 	rpio.Open()
 	defer rpio.Close()
 	fmt.Println(config.User.ID)
@@ -77,14 +78,22 @@ func main() {
 					case v := <-ch:
 						fmt.Println(v)
 						if v == rpio.High {
-							sendToRemo(appliance.ID, "on")
+							if appliance.Type == ApplianceTypeLIGHT {
+								remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "on")
+							} else if appliance.Type == ApplianceTypeTV {
+								remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "on")
+							}
 							if appliance.StatusType == StatusTypeREV {
 								out.Write(rpio.Low)
 							} else {
 								out.Write(rpio.High)
 							}
 						} else {
-							sendToRemo(appliance.ID, "off")
+							if appliance.Type == ApplianceTypeLIGHT {
+								remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "off")
+							} else if appliance.Type == ApplianceTypeTV {
+								remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "off")
+							}
 							if appliance.StatusType == StatusTypeREV {
 								out.Write(rpio.High)
 							} else {
@@ -99,14 +108,14 @@ func main() {
 					case v := <-ch:
 						fmt.Println(v)
 						if v == rpio.High {
-							sendSignal(appliance.ID, appliance.OnSignal)
+							remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
 							if appliance.StatusType == StatusTypeREV {
 								out.Write(rpio.Low)
 							} else {
 								out.Write(rpio.High)
 							}
 						} else {
-							sendSignal(appliance.ID, appliance.OffSignal)
+							remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OffSignal})
 							if appliance.StatusType == StatusTypeREV {
 								out.Write(rpio.High)
 							} else {
@@ -121,38 +130,4 @@ func main() {
 	for {
 		time.Sleep(time.Millisecond * 200)
 	}
-}
-
-func sendToRemo(id, button string) {
-	value := url.Values{}
-	value.Add("button", button)
-	req, _ := http.NewRequest("POST", fmt.Sprintf("https://api.nature.global/1/appliances/%s/light", id), strings.NewReader(value.Encode()))
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", config.User.ID))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return
-	}
-	b, err := ioutil.ReadAll(res.Body)
-	defer res.Body.Close()
-	if err != nil {
-		log.Println(err)
-	}
-	fmt.Println(string(b))
-}
-
-func sendSignal(id, signal string) {
-	req, _ := http.NewRequest("POST", fmt.Sprintf("https://api.nature.global/1/signals/%s/send", signal), nil)
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", config.User.ID))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return
-	}
-	b, err := ioutil.ReadAll(res.Body)
-	defer res.Body.Close()
-	if err != nil {
-		log.Println(err)
-	}
-	fmt.Println(string(b))
 }
