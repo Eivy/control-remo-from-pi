@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 )
 
 var config Config
+var remoClient *natureremo.Client
 
 func main() {
 	f, err := os.Open("./config.yaml")
@@ -25,7 +27,7 @@ func main() {
 		log.Fatal(err)
 	}
 	err = yaml.Unmarshal(b, &config)
-	remoClient := natureremo.NewClient(config.User.ID)
+	remoClient = natureremo.NewClient(config.User.ID)
 	ctx := context.Background()
 	rpio.Open()
 	defer rpio.Close()
@@ -136,11 +138,65 @@ func main() {
 	if t == 0 {
 		t = 20
 	}
-	interval := time.Tick(time.Second * t)
+	fmt.Printf("%#v\n", config.Server)
+	if config.Server != nil {
+		go statusCheck(&ctx, t)
+		http.HandleFunc("/", remoControl)
+		http.ListenAndServe(fmt.Sprintf(":%s", config.Server.Port), nil)
+	} else {
+		statusCheck(&ctx, t)
+	}
+}
+
+func remoControl(w http.ResponseWriter, r *http.Request) {
+	v := r.URL.Query()
+	id := v.Get("id")
+	button := v.Get("button")
+	if button != "" {
+		ctx := context.Background()
+		a, ok := config.Appliances[id]
+		if !ok {
+			return
+		}
+		t := a.Type
+		switch t {
+		case ApplianceTypeLIGHT:
+			remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: id}, button)
+		case ApplianceTypeTV:
+			remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: id}, button)
+		case ApplianceTypeIR:
+			if button == "on" {
+				remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: a.OnSignal})
+			} else {
+				remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: a.OffSignal})
+			}
+		}
+	} else {
+		pin := rpio.Pin(config.Appliances[id].StatusPin)
+		s := pin.Read()
+		if s == rpio.High {
+			if config.Appliances[id].StatusType == StatusTypeSTR {
+				fmt.Fprint(w, 1)
+			} else {
+				fmt.Fprint(w, 0)
+			}
+		} else {
+			if config.Appliances[id].StatusType == StatusTypeSTR {
+				fmt.Fprint(w, 0)
+			} else {
+				fmt.Fprint(w, 1)
+			}
+		}
+	}
+	return
+}
+
+func statusCheck(ctx *context.Context, intervalSec time.Duration) {
+	interval := time.Tick(time.Second * intervalSec)
 	for {
 		select {
 		case <-interval:
-			as, err := remoClient.ApplianceService.GetAll(ctx)
+			as, err := remoClient.ApplianceService.GetAll(*ctx)
 			if err != nil {
 				log.Println(err)
 			}

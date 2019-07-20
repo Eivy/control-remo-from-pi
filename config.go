@@ -7,6 +7,7 @@ type Config struct {
 	User struct {
 		ID string `yaml:"ID"`
 	} `yaml:"User"`
-	Appliances map[string]Appliance `yaml:"Appliances"`
-	CheckInterval time.Duration
+	Appliances    map[string]Appliance `yaml:"Appliances"`
+	CheckInterval time.Duration        `yaml:"CeckInterval"`
+	Server        *Server              `yaml:"Server"`
 }
