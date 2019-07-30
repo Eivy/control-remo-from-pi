@@ -32,7 +32,7 @@ func main() {
 	rpio.Open()
 	defer rpio.Close()
 	for k, a := range config.Appliances {
-		ID := k
+		name := k
 		appliance := a
 		in := rpio.Pin(appliance.SwitchPin)
 		in.Mode(rpio.Input)
@@ -77,12 +77,12 @@ func main() {
 				for {
 					select {
 					case v := <-ch:
-						fmt.Println(appliance.ID, v)
+						fmt.Println(name, v)
 						if v == rpio.High {
 							if appliance.Type == ApplianceTypeLIGHT {
-								remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: ID}, "on")
+								remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "on")
 							} else if appliance.Type == ApplianceTypeTV {
-								remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: ID}, "on")
+								remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "on")
 							}
 							if appliance.StatusType == StatusTypeREV {
 								out.Write(rpio.Low)
@@ -91,9 +91,9 @@ func main() {
 							}
 						} else {
 							if appliance.Type == ApplianceTypeLIGHT {
-								remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: ID}, "off")
+								remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "off")
 							} else if appliance.Type == ApplianceTypeTV {
-								remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: ID}, "off")
+								remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "off")
 							}
 							if appliance.StatusType == StatusTypeREV {
 								out.Write(rpio.High)
@@ -107,7 +107,7 @@ func main() {
 				for {
 					select {
 					case v := <-ch:
-						fmt.Println(v)
+						fmt.Println(name, v)
 						if v == rpio.High {
 							err := remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
 							if err != nil {
