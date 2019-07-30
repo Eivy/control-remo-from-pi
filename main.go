@@ -3,13 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
-	"github.com/go-yaml/yaml"
 	rpio "github.com/stianeikeland/go-rpio"
 	"github.com/tenntenn/natureremo"
 )
@@ -18,15 +15,10 @@ var config Config
 var remoClient *natureremo.Client
 
 func main() {
-	f, err := os.Open("./config.yaml")
+	config, err := ReadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
-	b, err := ioutil.ReadAll(f)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = yaml.Unmarshal(b, &config)
 	remoClient = natureremo.NewClient(config.User.ID)
 	ctx := context.Background()
 	rpio.Open()
