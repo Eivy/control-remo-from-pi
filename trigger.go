@@ -8,4 +8,6 @@ const (
 	TriggerTOGGLE Trigger = "TOGGLE"
 	// SYNC is syncronization
 	TriggerSYNC Trigger = "SYNC"
+	// TriggerTimer is syncronization
+	TriggerTimer Trigger = "TIMER"
 )

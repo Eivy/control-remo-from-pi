@@ -11,4 +11,5 @@ type Appliance struct {
 	OnSignal   string        `yaml:"OnSignal"`
 	OffSignal  string        `yaml:"OffSignal"`
 	Trigger    Trigger       `yaml:"Trigger"`
+	Timer      string        `yaml:"Timer"`
 }

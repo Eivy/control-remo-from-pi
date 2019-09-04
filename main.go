@@ -13,9 +13,11 @@ import (
 
 var config Config
 var remoClient *natureremo.Client
+var timer map[string]*time.Timer = make(map[string]*time.Timer)
 
 func main() {
-	config, err := ReadConfig()
+	var err error
+	config, err = ReadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -45,27 +47,48 @@ func main() {
 			}
 		}()
 		go func() {
-			before := rpio.Low
 			for {
 				select {
 				case v := <-ch:
 					fmt.Println(appliance.Name, v)
-					if appliance.Trigger == TriggerTOGGLE {
-						if before == rpio.Low && v == rpio.High {
-							if out.Read() == rpio.Low {
-								if appliance.StatusType == StatusTypeREV {
-									v = rpio.Low
-								} else {
-									v = rpio.High
-								}
+					switch appliance.Trigger {
+					case TriggerTOGGLE:
+						if v == rpio.Low {
+							continue
+						}
+						if out.Read() == rpio.Low {
+							if appliance.StatusType == StatusTypeREV {
+								v = rpio.Low
 							} else {
-								if appliance.StatusType != StatusTypeREV {
-									v = rpio.Low
-								} else {
-									v = rpio.High
-								}
+								v = rpio.High
+							}
+						} else {
+							if appliance.StatusType != StatusTypeREV {
+								v = rpio.Low
+							} else {
+								v = rpio.High
 							}
 						}
+					case TriggerTimer:
+						if v == rpio.Low {
+							continue
+						}
+						d, err := time.ParseDuration(appliance.Timer)
+						if err != nil {
+							log.Println(appliance, err)
+						}
+						if timer[appliance.ID] == nil {
+							remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
+							fmt.Println("TIMER", appliance.Name, "Start")
+							timer[appliance.ID] = time.AfterFunc(d, func() {
+								remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OffSignal})
+								timer[appliance.ID] = nil
+							})
+						} else {
+							fmt.Println("TIMER", appliance.Name, "Restart")
+							timer[appliance.ID].Reset(d)
+						}
+						continue
 					}
 					if v == rpio.High {
 						switch appliance.Type {
@@ -96,7 +119,6 @@ func main() {
 							out.Write(rpio.Low)
 						}
 					}
-					before = v
 				}
 			}
 		}()
@@ -109,7 +131,7 @@ func main() {
 	if config.Server != nil {
 		go statusCheck(&ctx, t)
 		http.HandleFunc("/", remoControl)
-		http.ListenAndServe(fmt.Sprintf(":%s", config.Server.Port), nil)
+		http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Server.Port), nil)
 	} else {
 		statusCheck(&ctx, t)
 	}
@@ -132,10 +154,29 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 		case ApplianceTypeTV:
 			remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: id}, button)
 		case ApplianceTypeIR:
-			if button == "on" {
-				remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: a.OnSignal})
-			} else {
-				remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: a.OffSignal})
+			switch a.Trigger {
+			case TriggerTimer:
+				d, err := time.ParseDuration(a.Timer)
+				if err != nil {
+					log.Println(err, r)
+				}
+				if timer[id] == nil {
+					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: a.OnSignal})
+					fmt.Println("TIMER", a.Name, "Start")
+					timer[id] = time.AfterFunc(d, func() {
+						remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: a.OffSignal})
+						timer[id] = nil
+					})
+				} else {
+					fmt.Println("TIMER", a.Name, "Restart")
+					timer[id].Reset(d)
+				}
+			default:
+				if button == "on" {
+					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: a.OnSignal})
+				} else {
+					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: a.OffSignal})
+				}
 			}
 		}
 	} else {
