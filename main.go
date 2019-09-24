@@ -13,7 +13,7 @@ import (
 
 var config Config
 var remoClient *natureremo.Client
-var timer map[string]*time.Timer = make(map[string]*time.Timer)
+var timer = make(map[string]*time.Timer)
 
 func main() {
 	var err error
@@ -31,6 +31,11 @@ func main() {
 		in.Mode(rpio.Input)
 		out := rpio.Pin(appliance.StatusPin)
 		out.Mode(rpio.Output)
+		var condition rpio.Pin
+		if appliance.ConditionPin != 0 {
+			condition = rpio.Pin(appliance.ConditionPin)
+			condition.Mode(rpio.Input)
+		}
 		ch := make(chan rpio.State)
 		go func() {
 			before := in.Read()
@@ -51,6 +56,9 @@ func main() {
 				select {
 				case v := <-ch:
 					fmt.Println(appliance.Name, v)
+					if condition != 0 && condition.Read() == rpio.Low {
+						break
+					}
 					switch appliance.Trigger {
 					case TriggerTOGGLE:
 						if v == rpio.Low {
@@ -145,7 +153,15 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 		ctx := context.Background()
 		a, ok := config.Appliances[id]
 		if !ok {
+			fmt.Println("missing")
 			return
+		}
+		if a.ConditionPin != 0 {
+			condition := rpio.Pin(a.ConditionPin)
+			condition.Mode(rpio.Input)
+			if condition.Read() == rpio.Low {
+				return
+			}
 		}
 		t := a.Type
 		switch t {
