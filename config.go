@@ -18,6 +18,10 @@ type Config struct {
 	Appliances    map[string]Appliance `yaml:"Appliances"`
 	CheckInterval time.Duration        `yaml:"CeckInterval"`
 	Server        *Server              `yaml:"Server"`
+	Host          *struct {
+		Addr string `yaml:"Addr"`
+		Port string `yaml:"Port"`
+	} `yaml:"Host"`
 }
 
 // ReadConfig returns config read from config file which is in excute path or specified in command args
