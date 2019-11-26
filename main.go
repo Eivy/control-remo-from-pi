@@ -136,14 +136,38 @@ func main() {
 			}()
 		} else {
 			go func() {
+				iptable := make(map[string]string)
 				for {
 					select {
 					case v := <-ch:
 						fmt.Println(appliance.Name, v)
 						host := config.Host.Addr
 					GET_IP:
-						if strings.HasSuffix(config.Host.Addr, ".local") {
-							host = searchMDNS(config.Host.Addr)
+						if ipv4, ok := iptable[host]; ok {
+							host = ipv4
+						} else if !ok && strings.HasSuffix(config.Host.Addr, ".local") {
+							result := make(chan string)
+							entriesCh := make(chan *mdns.ServiceEntry, 10)
+							go func() {
+								for e := range entriesCh {
+									entry := e
+									fmt.Println((*entry).Host, host+".")
+									if (*entry).Host == host+"." {
+										if entry.AddrV4 != nil {
+											result <- entry.AddrV4.String()
+										}
+									}
+								}
+							}()
+							mdns.Lookup("_http._tcp", entriesCh)
+							select {
+							case ipv4 = <-result:
+							case <-time.After(time.Second):
+								ipv4 = host
+							}
+							close(entriesCh)
+							iptable[host] = ipv4
+							host = ipv4
 						}
 						switch appliance.Trigger {
 						case TriggerTOGGLE:
@@ -153,7 +177,7 @@ func main() {
 							if getStatus(host+":"+config.Host.Port, appliance.ID) == "0" {
 								err = sendButton(host+":"+config.Host.Port, appliance.ID, "on")
 								if err != nil {
-									iptable[config.Host.Addr] = nil
+									delete(iptable, host)
 									goto GET_IP
 								}
 								if appliance.StatusType == StatusTypeREV {
@@ -164,7 +188,7 @@ func main() {
 							} else {
 								err = sendButton(host+":"+config.Host.Port, appliance.ID, "off")
 								if err != nil {
-									iptable[config.Host.Addr] = nil
+									delete(iptable, host)
 									goto GET_IP
 								}
 								if appliance.StatusType == StatusTypeREV {
@@ -193,8 +217,6 @@ func main() {
 	}
 }
 
-var iptable = make(map[string]string)
-
 func getStatus(dist, id string) string {
 	fmt.Printf("http://%s/?id=%s\n", dist, id)
 	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s", dist, id))
@@ -216,35 +238,6 @@ func sendButton(dist, id, button string) (err error) {
 		return
 	}
 	res.Body.Close()
-	return
-}
-
-func searchMDNS(host string) (ipv4 string) {
-	if v, ok := iptable[host]; ok {
-		return v
-	}
-	result := make(chan string)
-	entriesCh := make(chan *mdns.ServiceEntry, 10)
-	go func() {
-		for e := range entriesCh {
-			entry := e
-			fmt.Println((*entry).Host, host+".")
-			if (*entry).Host == host+"." {
-				if entry.AddrV4 != nil {
-					result <- entry.AddrV4.String()
-				}
-			}
-		}
-	}()
-	mdns.Lookup("_http._tcp", entriesCh)
-	defer close(entriesCh)
-	select {
-	case ipv4 = <-result:
-	case <-time.After(time.Second):
-		ipv4 = host
-	}
-	fmt.Println(ipv4)
-	iptable[host] = ipv4
 	return
 }
 
