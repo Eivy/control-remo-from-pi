@@ -40,167 +40,11 @@ func main() {
 			condition.Mode(rpio.Input)
 		}
 		ch := make(chan rpio.State)
-		go func() {
-			before := in.Read()
-			for {
-				select {
-				default:
-					tmp := in.Read()
-					if before != tmp {
-						ch <- tmp
-						before = tmp
-					}
-					time.Sleep(time.Millisecond * 100)
-				}
-			}
-		}()
+		go pinCheck(in, ch)
 		if config.Host == nil {
-			go func() {
-				for {
-					select {
-					case v := <-ch:
-						fmt.Println(appliance.Name, v)
-						if condition != 0 && condition.Read() == rpio.Low {
-							break
-						}
-						switch appliance.Trigger {
-						case TriggerTOGGLE:
-							if v == rpio.Low {
-								continue
-							}
-							if out.Read() == rpio.Low {
-								if appliance.StatusType == StatusTypeREV {
-									v = rpio.Low
-								} else {
-									v = rpio.High
-								}
-							} else {
-								if appliance.StatusType != StatusTypeREV {
-									v = rpio.Low
-								} else {
-									v = rpio.High
-								}
-							}
-						case TriggerTimer:
-							if v == rpio.Low {
-								continue
-							}
-							d, err := time.ParseDuration(appliance.Timer)
-							if err != nil {
-								log.Println(appliance, err)
-							}
-							if timer[appliance.ID] == nil {
-								remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
-								fmt.Println("TIMER", appliance.Name, "Start")
-								timer[appliance.ID] = time.AfterFunc(d, func() {
-									remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OffSignal})
-									timer[appliance.ID] = nil
-								})
-							} else {
-								fmt.Println("TIMER", appliance.Name, "Restart")
-								timer[appliance.ID].Reset(d)
-							}
-							continue
-						}
-						if v == rpio.High {
-							switch appliance.Type {
-							case ApplianceTypeLIGHT:
-								remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "on")
-							case ApplianceTypeTV:
-								remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "on")
-							case ApplianceTypeIR:
-								remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
-							}
-							if appliance.StatusType == StatusTypeREV {
-								out.Write(rpio.Low)
-							} else {
-								out.Write(rpio.High)
-							}
-						} else {
-							switch appliance.Type {
-							case ApplianceTypeLIGHT:
-								remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "off")
-							case ApplianceTypeTV:
-								remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "off")
-							case ApplianceTypeIR:
-								remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OffSignal})
-							}
-							if appliance.StatusType == StatusTypeREV {
-								out.Write(rpio.High)
-							} else {
-								out.Write(rpio.Low)
-							}
-						}
-					}
-				}
-			}()
+			go serverSide(ctx, condition, out, ch, appliance)
 		} else {
-			go func() {
-				iptable := make(map[string]string)
-				for {
-					select {
-					case v := <-ch:
-						fmt.Println(appliance.Name, v)
-						host := config.Host.Addr
-					GET_IP:
-						if ipv4, ok := iptable[host]; ok {
-							host = ipv4
-						} else if !ok && strings.HasSuffix(config.Host.Addr, ".local") {
-							result := make(chan string)
-							entriesCh := make(chan *mdns.ServiceEntry, 10)
-							go func() {
-								for e := range entriesCh {
-									entry := e
-									fmt.Println((*entry).Host, host+".")
-									if (*entry).Host == host+"." {
-										if entry.AddrV4 != nil {
-											result <- entry.AddrV4.String()
-										}
-									}
-								}
-							}()
-							mdns.Lookup("_http._tcp", entriesCh)
-							select {
-							case ipv4 = <-result:
-							case <-time.After(time.Second):
-								ipv4 = host
-							}
-							close(entriesCh)
-							iptable[host] = ipv4
-							host = ipv4
-						}
-						switch appliance.Trigger {
-						case TriggerTOGGLE:
-							if v == rpio.Low {
-								continue
-							}
-							if getStatus(host+":"+config.Host.Port, appliance.ID) == "0" {
-								err = sendButton(host+":"+config.Host.Port, appliance.ID, "on")
-								if err != nil {
-									delete(iptable, host)
-									goto GET_IP
-								}
-								if appliance.StatusType == StatusTypeREV {
-									out.Write(rpio.Low)
-								} else {
-									out.Write(rpio.High)
-								}
-							} else {
-								err = sendButton(host+":"+config.Host.Port, appliance.ID, "off")
-								if err != nil {
-									delete(iptable, host)
-									goto GET_IP
-								}
-								if appliance.StatusType == StatusTypeREV {
-									out.Write(rpio.High)
-								} else {
-									out.Write(rpio.Low)
-								}
-							}
-						}
-					}
-				}
-			}()
+			go clientSide(ctx, condition, out, ch, appliance)
 		}
 	}
 	t := config.CheckInterval
@@ -415,6 +259,167 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 							fmt.Println(a.Name, 1, "set low")
 							rpio.Pin(a.StatusPin).Write(rpio.Low)
 						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func pinCheck(in rpio.Pin, ch chan rpio.State) {
+	before := in.Read()
+	for {
+		select {
+		default:
+			tmp := in.Read()
+			if before != tmp {
+				ch <- tmp
+				before = tmp
+			}
+			time.Sleep(time.Millisecond * 100)
+		}
+	}
+}
+
+func serverSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan rpio.State, appliance Appliance) {
+	for {
+		select {
+		case v := <-ch:
+			fmt.Println(appliance.Name, v)
+			if condition != 0 && condition.Read() == rpio.Low {
+				break
+			}
+			switch appliance.Trigger {
+			case TriggerTOGGLE:
+				if v == rpio.Low {
+					continue
+				}
+				if out.Read() == rpio.Low {
+					if appliance.StatusType == StatusTypeREV {
+						v = rpio.Low
+					} else {
+						v = rpio.High
+					}
+				} else {
+					if appliance.StatusType != StatusTypeREV {
+						v = rpio.Low
+					} else {
+						v = rpio.High
+					}
+				}
+			case TriggerTimer:
+				if v == rpio.Low {
+					continue
+				}
+				d, err := time.ParseDuration(appliance.Timer)
+				if err != nil {
+					log.Println(appliance, err)
+				}
+				if timer[appliance.ID] == nil {
+					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
+					fmt.Println("TIMER", appliance.Name, "Start")
+					timer[appliance.ID] = time.AfterFunc(d, func() {
+						remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OffSignal})
+						timer[appliance.ID] = nil
+					})
+				} else {
+					fmt.Println("TIMER", appliance.Name, "Restart")
+					timer[appliance.ID].Reset(d)
+				}
+				continue
+			}
+			if v == rpio.High {
+				switch appliance.Type {
+				case ApplianceTypeLIGHT:
+					remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "on")
+				case ApplianceTypeTV:
+					remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "on")
+				case ApplianceTypeIR:
+					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
+				}
+				if appliance.StatusType == StatusTypeREV {
+					out.Write(rpio.Low)
+				} else {
+					out.Write(rpio.High)
+				}
+			} else {
+				switch appliance.Type {
+				case ApplianceTypeLIGHT:
+					remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "off")
+				case ApplianceTypeTV:
+					remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "off")
+				case ApplianceTypeIR:
+					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OffSignal})
+				}
+				if appliance.StatusType == StatusTypeREV {
+					out.Write(rpio.High)
+				} else {
+					out.Write(rpio.Low)
+				}
+			}
+		}
+	}
+}
+
+func clientSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan rpio.State, appliance Appliance) {
+	host := config.Host.Addr
+	ipv4 := host
+	iptable := make(map[string]string)
+	for {
+		select {
+		case v := <-ch:
+			fmt.Println(appliance.Name, v)
+		GET_IP:
+			ok := false
+			if ipv4, ok = iptable[host]; !ok && strings.HasSuffix(config.Host.Addr, ".local") {
+				result := make(chan string)
+				entriesCh := make(chan *mdns.ServiceEntry, 10)
+				go func() {
+					for e := range entriesCh {
+						entry := e
+						fmt.Println((*entry).Host, host+".")
+						if (*entry).Host == host+"." {
+							if entry.AddrV4 != nil {
+								result <- entry.AddrV4.String()
+							}
+						}
+					}
+				}()
+				mdns.Lookup("_http._tcp", entriesCh)
+				select {
+				case ipv4 = <-result:
+				case <-time.After(time.Second):
+					ipv4 = host
+				}
+				close(entriesCh)
+				iptable[host] = ipv4
+			}
+			switch appliance.Trigger {
+			case TriggerTOGGLE:
+				if v == rpio.Low {
+					continue
+				}
+				if getStatus(ipv4+":"+config.Host.Port, appliance.ID) == "0" {
+					err := sendButton(ipv4+":"+config.Host.Port, appliance.ID, "on")
+					if err != nil {
+						delete(iptable, host)
+						goto GET_IP
+					}
+					if appliance.StatusType == StatusTypeREV {
+						out.Write(rpio.Low)
+					} else {
+						out.Write(rpio.High)
+					}
+				} else {
+					err := sendButton(ipv4+":"+config.Host.Port, appliance.ID, "off")
+					if err != nil {
+						delete(iptable, host)
+						goto GET_IP
+					}
+					if appliance.StatusType == StatusTypeREV {
+						out.Write(rpio.High)
+					} else {
+						out.Write(rpio.Low)
 					}
 				}
 			}
