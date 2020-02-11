@@ -227,6 +227,7 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 		case <-timeout:
 			goto LOOP
 		}
+		close(entriesCh)
 		for {
 			interval := time.Tick(time.Second * 5)
 			select {
