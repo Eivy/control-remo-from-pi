@@ -62,7 +62,6 @@ func main() {
 }
 
 func getStatus(dist, id string) string {
-	fmt.Printf("http://%s/?id=%s\n", dist, id)
 	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s", dist, id))
 	if err != nil {
 		fmt.Println(err)
@@ -70,12 +69,10 @@ func getStatus(dist, id string) string {
 	}
 	defer res.Body.Close()
 	b, _ := ioutil.ReadAll(res.Body)
-	fmt.Println(string(b))
 	return string(b)
 }
 
 func sendButton(dist, id, button string) (err error) {
-	fmt.Printf("http://%s/?id=%s&button=%s\n", dist, id, button)
 	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s&button=%s", dist, id, button))
 	if err != nil {
 		fmt.Println(err)
@@ -246,18 +243,14 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 					fmt.Print(s)
 					if s == "0" {
 						if a.StatusType == StatusTypeSTR {
-							fmt.Println(a.Name, 0, "set low")
 							rpio.Pin(a.StatusPin).Write(rpio.Low)
 						} else {
-							fmt.Println(a.Name, 0, "set high")
 							rpio.Pin(a.StatusPin).Write(rpio.High)
 						}
 					} else {
 						if a.StatusType == StatusTypeSTR {
-							fmt.Println(a.Name, 1, "set high")
 							rpio.Pin(a.StatusPin).Write(rpio.High)
 						} else {
-							fmt.Println(a.Name, 1, "set low")
 							rpio.Pin(a.StatusPin).Write(rpio.Low)
 						}
 					}
@@ -378,7 +371,6 @@ func clientSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 				go func() {
 					for e := range entriesCh {
 						entry := e
-						fmt.Println((*entry).Host, host+".")
 						if (*entry).Host == host+"." {
 							if entry.AddrV4 != nil {
 								result <- entry.AddrV4.String()
