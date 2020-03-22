@@ -61,6 +61,22 @@ func main() {
 	}
 }
 
+type getAppliancesParam struct {
+	ctx        context.Context
+	interval   time.Duration
+	resultChan chan []*natureremo.Appliance
+}
+
+func getAppliances(param getAppliancesParam) {
+	for range time.Tick(param.interval) {
+		a, err := remoClient.ApplianceService.GetAll(param.ctx)
+		if err != nil {
+			continue
+		}
+		param.resultChan <- a
+	}
+}
+
 func getStatusFromHost(dist, id string) string {
 	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s", dist, id))
 	if err != nil {
