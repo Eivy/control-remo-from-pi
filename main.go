@@ -61,7 +61,7 @@ func main() {
 	}
 }
 
-func getStatus(dist, id string) string {
+func getStatusFromHost(dist, id string) string {
 	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s", dist, id))
 	if err != nil {
 		fmt.Println(err)
@@ -392,7 +392,7 @@ func clientSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 				if v == rpio.Low {
 					continue
 				}
-				if getStatus(ipv4+":"+config.Host.Port, appliance.ID) == "0" {
+				if getStatusFromHost(ipv4+":"+config.Host.Port, appliance.ID) == "0" {
 					err := sendButtonToHost(ipv4+":"+config.Host.Port, appliance.ID, "on")
 					if err != nil {
 						delete(iptable, host)
