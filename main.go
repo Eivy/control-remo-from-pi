@@ -77,6 +77,35 @@ func getAppliances(param getAppliancesParam) {
 	}
 }
 
+type gpioStatus struct {
+	pinNumber int
+	id        string
+	status    rpio.State
+}
+
+type checkGpioInputParam struct {
+	targets []*gpioStatus
+	changed chan gpioStatus
+}
+
+func checkGpioInput(param checkGpioInputParam) {
+	for _, v := range param.targets {
+		target := v
+		pin := rpio.Pin(target.pinNumber)
+		before := pin.Read()
+		go func() {
+			tmp := pin.Read()
+			if before != tmp {
+				param.changed <- gpioStatus{
+					id:     target.id,
+					status: tmp,
+				}
+				before = tmp
+			}
+		}()
+	}
+}
+
 func getStatusFromHost(dist, id string) string {
 	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s", dist, id))
 	if err != nil {
