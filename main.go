@@ -77,15 +77,20 @@ func getAppliances(param getAppliancesParam) {
 	}
 }
 
-type gpioStatus struct {
+type buttonParam struct {
+	id     string
+	button string
+}
+
+type gpioConfig struct {
 	pinNumber int
 	id        string
-	status    rpio.State
+	button    [2]string
 }
 
 type checkGpioInputParam struct {
-	targets []*gpioStatus
-	changed chan *gpioStatus
+	targets []*gpioConfig
+	changed chan *buttonParam
 }
 
 func checkGpioInput(param checkGpioInputParam) {
@@ -98,9 +103,9 @@ func checkGpioInput(param checkGpioInputParam) {
 			case <-time.Tick(time.Millisecond * 100):
 				tmp := pin.Read()
 				if before != tmp {
-					param.changed <- &gpioStatus{
+					param.changed <- &buttonParam{
 						id:     target.id,
-						status: tmp,
+						button: target.button[tmp],
 					}
 					before = tmp
 				}
