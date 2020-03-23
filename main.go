@@ -85,7 +85,7 @@ type gpioStatus struct {
 
 type checkGpioInputParam struct {
 	targets []*gpioStatus
-	changed chan gpioStatus
+	changed chan *gpioStatus
 }
 
 func checkGpioInput(param checkGpioInputParam) {
@@ -96,7 +96,7 @@ func checkGpioInput(param checkGpioInputParam) {
 		go func() {
 			tmp := pin.Read()
 			if before != tmp {
-				param.changed <- gpioStatus{
+				param.changed <- &gpioStatus{
 					id:     target.id,
 					status: tmp,
 				}
