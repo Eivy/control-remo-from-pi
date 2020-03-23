@@ -125,9 +125,8 @@ func updateOutputGpio(param updateOutputGpioParam) {
 	statusFunc := func(status rpio.State) rpio.State {
 		if config.StatusType == StatusTypeSTR {
 			return status
-		} else {
-			return (status + 1) % 2
 		}
+		return (status + 1) % 2
 	}
 	switch param.newAppliance.Type {
 	case natureremo.ApplianceTypeAirCon:
