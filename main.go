@@ -94,13 +94,16 @@ func checkGpioInput(param checkGpioInputParam) {
 		pin := rpio.Pin(target.pinNumber)
 		before := pin.Read()
 		go func() {
-			tmp := pin.Read()
-			if before != tmp {
-				param.changed <- &gpioStatus{
-					id:     target.id,
-					status: tmp,
+			select {
+			case <-time.Tick(time.Millisecond * 100):
+				tmp := pin.Read()
+				if before != tmp {
+					param.changed <- &gpioStatus{
+						id:     target.id,
+						status: tmp,
+					}
+					before = tmp
 				}
-				before = tmp
 			}
 		}()
 	}
