@@ -88,12 +88,12 @@ type gpioConfig struct {
 	button    [2]string
 }
 
-type checkGpioInputParam struct {
+type checkInputGpioParam struct {
 	targets []*gpioConfig
 	changed chan *buttonParam
 }
 
-func checkGpioInput(param checkGpioInputParam) {
+func checkInputGpio(param checkInputGpioParam) {
 	for _, v := range param.targets {
 		target := v
 		pin := rpio.Pin(target.pinNumber)
