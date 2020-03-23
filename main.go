@@ -114,6 +114,39 @@ func checkInputGpio(param checkInputGpioParam) {
 	}
 }
 
+type updateOutputGpioParam struct {
+	pinNumber    int
+	newAppliance natureremo.Appliance
+	config       Config
+}
+
+func updateOutputGpio(param updateOutputGpioParam) {
+	config := param.config.Appliances[param.newAppliance.ID]
+	statusFunc := func(status rpio.State) rpio.State {
+		if config.StatusType == StatusTypeSTR {
+			return status
+		} else {
+			return (status + 1) % 2
+		}
+	}
+	switch param.newAppliance.Type {
+	case natureremo.ApplianceTypeAirCon:
+		if param.newAppliance.AirConSettings.Button == "" {
+			rpio.Pin(config.StatusPin).Write(statusFunc(1))
+		} else {
+			rpio.Pin(config.StatusPin).Write(statusFunc(0))
+		}
+	case natureremo.ApplianceTypeLight:
+		if param.newAppliance.Light.State.Power == "on" {
+			rpio.Pin(config.StatusPin).Write(statusFunc(1))
+		} else {
+			rpio.Pin(config.StatusPin).Write(statusFunc(0))
+		}
+	default:
+		break
+	}
+}
+
 func getStatusFromHost(dist, id string) string {
 	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s", dist, id))
 	if err != nil {
