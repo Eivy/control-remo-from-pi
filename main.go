@@ -114,27 +114,23 @@ func checkInputGpio(param checkInputGpioParam) {
 	}
 }
 
-type updateOutputGpioParam struct {
-	newAppliance natureremo.Appliance
-}
-
-func updateOutputGpio(param updateOutputGpioParam) {
-	config := config.Appliances[param.newAppliance.ID]
+func updateOutputGpio(newAppliance natureremo.Appliance) {
+	config := config.Appliances[newAppliance.ID]
 	statusFunc := func(status rpio.State) rpio.State {
 		if config.StatusType == StatusTypeSTR {
 			return status
 		}
 		return (status + 1) % 2
 	}
-	switch param.newAppliance.Type {
+	switch newAppliance.Type {
 	case natureremo.ApplianceTypeAirCon:
-		if param.newAppliance.AirConSettings.Button == "" {
+		if newAppliance.AirConSettings.Button == "" {
 			rpio.Pin(config.StatusPin).Write(statusFunc(1))
 		} else {
 			rpio.Pin(config.StatusPin).Write(statusFunc(0))
 		}
 	case natureremo.ApplianceTypeLight:
-		if param.newAppliance.Light.State.Power == "on" {
+		if newAppliance.Light.State.Power == "on" {
 			rpio.Pin(config.StatusPin).Write(statusFunc(1))
 		} else {
 			rpio.Pin(config.StatusPin).Write(statusFunc(0))
