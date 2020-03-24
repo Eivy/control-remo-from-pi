@@ -115,7 +115,6 @@ func checkInputGpio(param checkInputGpioParam) {
 }
 
 type updateOutputGpioParam struct {
-	pinNumber    int
 	newAppliance natureremo.Appliance
 	config       Config
 }
