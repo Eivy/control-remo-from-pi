@@ -114,8 +114,7 @@ func checkInputGpio(param checkInputGpioParam) {
 	}
 }
 
-func updateOutputGpio(config Config, newAppliance natureremo.Appliance) {
-	appliance := config.Appliances[newAppliance.ID]
+func updateOutputGpio(appliance Appliance, newAppliance natureremo.Appliance) {
 	statusFunc := func(status rpio.State) rpio.State {
 		if appliance.StatusType == StatusTypeSTR {
 			return status
