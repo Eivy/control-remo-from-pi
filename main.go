@@ -114,10 +114,10 @@ func checkInputGpio(param checkInputGpioParam) {
 	}
 }
 
-func updateOutputGpio(newAppliance natureremo.Appliance) {
-	config := config.Appliances[newAppliance.ID]
+func updateOutputGpio(config Config, newAppliance natureremo.Appliance) {
+	appliance := config.Appliances[newAppliance.ID]
 	statusFunc := func(status rpio.State) rpio.State {
-		if config.StatusType == StatusTypeSTR {
+		if appliance.StatusType == StatusTypeSTR {
 			return status
 		}
 		return (status + 1) % 2
@@ -125,15 +125,15 @@ func updateOutputGpio(newAppliance natureremo.Appliance) {
 	switch newAppliance.Type {
 	case natureremo.ApplianceTypeAirCon:
 		if newAppliance.AirConSettings.Button == "" {
-			rpio.Pin(config.StatusPin).Write(statusFunc(1))
+			rpio.Pin(appliance.StatusPin).Write(statusFunc(1))
 		} else {
-			rpio.Pin(config.StatusPin).Write(statusFunc(0))
+			rpio.Pin(appliance.StatusPin).Write(statusFunc(0))
 		}
 	case natureremo.ApplianceTypeLight:
 		if newAppliance.Light.State.Power == "on" {
-			rpio.Pin(config.StatusPin).Write(statusFunc(1))
+			rpio.Pin(appliance.StatusPin).Write(statusFunc(1))
 		} else {
-			rpio.Pin(config.StatusPin).Write(statusFunc(0))
+			rpio.Pin(appliance.StatusPin).Write(statusFunc(0))
 		}
 	default:
 		break
