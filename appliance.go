@@ -10,9 +10,12 @@ type Appliance struct {
 	SwitchPin    int                      `yaml:"SwitchPin"`
 	StatusPin    int                      `yaml:"StatusPin"`
 	StatusType   StatusType               `yaml:"StatusType"`
+	OnButton     string                   `yaml:"OnButton"`
+	OffButton    string                   `yaml:"OffButton"`
 	OnSignal     string                   `yaml:"OnSignal"`
 	OffSignal    string                   `yaml:"OffSignal"`
 	Trigger      Trigger                  `yaml:"Trigger"`
 	Timer        string                   `yaml:"Timer"`
 	ConditionPin int                      `yaml:"ConditionPin"`
+	Buttons      map[string]string        `yaml:"Buttons"`
 }

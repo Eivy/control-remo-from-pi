@@ -426,11 +426,15 @@ func serverSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 				continue
 			}
 			if v == rpio.High {
+				button := "on"
+				if appliance.OnButton != "" {
+					button = appliance.OnButton
+				}
 				switch appliance.Type {
 				case natureremo.ApplianceTypeLight:
-					remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "on")
+					remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, button)
 				case natureremo.ApplianceTypeTV:
-					remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "on")
+					remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, button)
 				case natureremo.ApplianceTypeIR:
 					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
 				}
@@ -440,11 +444,15 @@ func serverSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 					out.Write(rpio.High)
 				}
 			} else {
+				button := "on"
+				if appliance.OnButton != "" {
+					button = appliance.OffButton
+				}
 				switch appliance.Type {
 				case natureremo.ApplianceTypeLight:
-					remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "off")
+					remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, button)
 				case natureremo.ApplianceTypeTV:
-					remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, "off")
+					remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, button)
 				case natureremo.ApplianceTypeIR:
 					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OffSignal})
 				}
@@ -495,8 +503,14 @@ func clientSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 				if v == rpio.Low {
 					continue
 				}
-				if getStatusFromHost(ipv4+":"+config.Host.Port, appliance.ID) == "0" {
-					err := sendButtonToHost(ipv4+":"+config.Host.Port, appliance.ID, "on")
+				status := getStatusFromHost(ipv4+":"+config.Host.Port, appliance.ID)
+				var err error
+				if status == "0" {
+					if appliance.OnButton != "" {
+						err = sendButtonToHost(ipv4+":"+config.Host.Port, appliance.ID, appliance.OnButton)
+					} else {
+						err = sendButtonToHost(ipv4+":"+config.Host.Port, appliance.ID, "on")
+					}
 					if err != nil {
 						delete(iptable, host)
 						goto GET_IP
@@ -507,7 +521,11 @@ func clientSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 						out.Write(rpio.High)
 					}
 				} else {
-					err := sendButtonToHost(ipv4+":"+config.Host.Port, appliance.ID, "off")
+					if appliance.OffButton != "" {
+						err = sendButtonToHost(ipv4+":"+config.Host.Port, appliance.ID, appliance.OffButton)
+					} else {
+						err = sendButtonToHost(ipv4+":"+config.Host.Port, appliance.ID, "off")
+					}
 					if err != nil {
 						delete(iptable, host)
 						goto GET_IP
