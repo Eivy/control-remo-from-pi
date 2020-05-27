@@ -442,7 +442,7 @@ func serverSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 					out.Write(rpio.High)
 				}
 			} else {
-				button := "on"
+				button := "off"
 				if appliance.OffButton != "" {
 					button = appliance.OffButton
 				}
