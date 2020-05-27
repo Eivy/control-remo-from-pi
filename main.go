@@ -445,7 +445,7 @@ func serverSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 				}
 			} else {
 				button := "on"
-				if appliance.OnButton != "" {
+				if appliance.OffButton != "" {
 					button = appliance.OffButton
 				}
 				switch appliance.Type {
