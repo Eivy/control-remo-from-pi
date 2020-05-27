@@ -156,7 +156,6 @@ func sendButton(ctx context.Context, appliance *Appliance, id, button string) {
 			},
 		}
 		updateOutputGpio(*appliance, newAppliance)
-		break
 	case natureremo.ApplianceTypeTV:
 		break
 	case natureremo.ApplianceTypeIR:
@@ -270,7 +269,6 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	return
 }
 
 func statusCheck(ctx *context.Context, intervalSec time.Duration) {
