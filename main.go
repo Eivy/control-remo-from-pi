@@ -338,8 +338,8 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 					if err != nil {
 						goto LOOP
 					}
-					defer res.Body.Close()
 					b, _ := ioutil.ReadAll(res.Body)
+					res.Body.Close()
 					s := string(b)
 					fmt.Print(s)
 					if s == "0" {
