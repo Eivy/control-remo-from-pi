@@ -100,7 +100,7 @@ func checkInputGpio(param checkInputGpioParam) {
 		before := pin.Read()
 		go func() {
 			select {
-			case <-time.Tick(time.Millisecond * 100):
+			case <-time.Tick(time.Millisecond * 500):
 				tmp := pin.Read()
 				if before != tmp {
 					param.changed <- &buttonParam{
@@ -303,29 +303,31 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 			}
 		}
 	} else {
-		var host string
-		entriesCh := make(chan *mdns.ServiceEntry, 4)
-		result := make(chan string)
-		go func() {
-			for entry := range entriesCh {
-				fmt.Println(entry)
-				if (*entry).Host == config.Host.Addr+"." {
-					if entry.AddrV4 == nil {
-						continue
-					}
-					result <- fmt.Sprintf("%s:%d", (*entry).AddrV4.String(), (*entry).Port)
-				}
-			}
-		}()
+		host := config.Host.Addr
 	LOOP:
-		mdns.Lookup("_http._tcp", entriesCh)
-		timeout := time.After(time.Second)
-		select {
-		case host = <-result:
-		case <-timeout:
-			goto LOOP
+		if strings.HasSuffix(config.Host.Addr, ".local") {
+			entriesCh := make(chan *mdns.ServiceEntry, 4)
+			result := make(chan string)
+			go func() {
+				for entry := range entriesCh {
+					fmt.Println(entry)
+					if (*entry).Host == config.Host.Addr+"." {
+						if entry.AddrV4 == nil {
+							continue
+						}
+						result <- fmt.Sprintf("%s:%d", (*entry).AddrV4.String(), (*entry).Port)
+					}
+				}
+			}()
+			mdns.Lookup("_http._tcp", entriesCh)
+			timeout := time.After(time.Second)
+			select {
+			case host = <-result:
+			case <-timeout:
+				goto LOOP
+			}
+			close(entriesCh)
 		}
-		close(entriesCh)
 		for {
 			interval := time.Tick(time.Second * 5)
 			select {
@@ -334,7 +336,7 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 					if a.Type == natureremo.ApplianceTypeIR {
 						continue
 					}
-					res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s", host, a.ID))
+					res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s:%s/?id=%s", host, config.Host.Port, a.ID))
 					if err != nil {
 						goto LOOP
 					}
@@ -474,27 +476,29 @@ func clientSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 			fmt.Println(appliance.Name, v)
 		GET_IP:
 			ok := false
-			if ipv4, ok = iptable[host]; !ok && strings.HasSuffix(config.Host.Addr, ".local") {
-				result := make(chan string)
-				entriesCh := make(chan *mdns.ServiceEntry, 10)
-				go func() {
-					for e := range entriesCh {
-						entry := e
-						if (*entry).Host == host+"." {
-							if entry.AddrV4 != nil {
-								result <- entry.AddrV4.String()
+			if strings.HasSuffix(config.Host.Addr, ".local") {
+				if ipv4, ok = iptable[host]; !ok && strings.HasSuffix(config.Host.Addr, ".local") {
+					result := make(chan string)
+					entriesCh := make(chan *mdns.ServiceEntry, 10)
+					go func() {
+						for e := range entriesCh {
+							entry := e
+							if (*entry).Host == host+"." {
+								if entry.AddrV4 != nil {
+									result <- entry.AddrV4.String()
+								}
 							}
 						}
+					}()
+					mdns.Lookup("_http._tcp", entriesCh)
+					select {
+					case ipv4 = <-result:
+					case <-time.After(time.Second):
+						ipv4 = host
 					}
-				}()
-				mdns.Lookup("_http._tcp", entriesCh)
-				select {
-				case ipv4 = <-result:
-				case <-time.After(time.Second):
-					ipv4 = host
+					close(entriesCh)
+					iptable[host] = ipv4
 				}
-				close(entriesCh)
-				iptable[host] = ipv4
 			}
 			switch appliance.Trigger {
 			case TriggerTOGGLE:
