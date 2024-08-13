@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -61,108 +61,6 @@ func main() {
 	}
 }
 
-type getAppliancesParam struct {
-	ctx        context.Context
-	interval   time.Duration
-	resultChan chan []*natureremo.Appliance
-}
-
-func getAppliances(param getAppliancesParam) {
-	for range time.Tick(param.interval) {
-		a, err := remoClient.ApplianceService.GetAll(param.ctx)
-		if err != nil {
-			continue
-		}
-		param.resultChan <- a
-	}
-}
-
-type buttonParam struct {
-	id     string
-	button string
-}
-
-type gpioConfig struct {
-	pinNumber int
-	id        string
-	button    [2]string
-}
-
-type checkInputGpioParam struct {
-	targets []*gpioConfig
-	changed chan *buttonParam
-}
-
-func checkInputGpio(param checkInputGpioParam) {
-	for _, v := range param.targets {
-		target := v
-		pin := rpio.Pin(target.pinNumber)
-		before := pin.Read()
-		go func() {
-			select {
-			case <-time.Tick(time.Millisecond * 500):
-				tmp := pin.Read()
-				if before != tmp {
-					param.changed <- &buttonParam{
-						id:     target.id,
-						button: target.button[tmp],
-					}
-					before = tmp
-				}
-			}
-		}()
-	}
-}
-
-func updateOutputGpio(appliance Appliance, newAppliance natureremo.Appliance) {
-	statusFunc := func(status rpio.State) rpio.State {
-		if appliance.StatusType == StatusTypeSTR {
-			return status
-		}
-		return (status + 1) % 2
-	}
-	switch newAppliance.Type {
-	case natureremo.ApplianceTypeAirCon:
-		if newAppliance.AirConSettings.Button == "" {
-			rpio.Pin(appliance.StatusPin).Write(statusFunc(1))
-		} else {
-			rpio.Pin(appliance.StatusPin).Write(statusFunc(0))
-		}
-	case natureremo.ApplianceTypeLight:
-		if newAppliance.Light.State.Power == "on" {
-			rpio.Pin(appliance.StatusPin).Write(statusFunc(1))
-		} else {
-			rpio.Pin(appliance.StatusPin).Write(statusFunc(0))
-		}
-	default:
-		break
-	}
-}
-
-func sendButton(ctx context.Context, appliance *Appliance, id, button string) {
-	switch appliance.Type {
-	case natureremo.ApplianceTypeLight:
-		light := natureremo.Appliance{
-			ID: appliance.ID,
-		}
-		result, err := remoClient.ApplianceService.SendLightSignal(ctx, &light, button)
-		if err != nil {
-			log.Println(err)
-		}
-		newAppliance := natureremo.Appliance{
-			ID: appliance.ID,
-			Light: &natureremo.Light{
-				State: result,
-			},
-		}
-		updateOutputGpio(*appliance, newAppliance)
-	case natureremo.ApplianceTypeTV:
-		break
-	case natureremo.ApplianceTypeIR:
-		break
-	}
-}
-
 func getStatusFromHost(dist, id string) string {
 	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s", dist, id))
 	if err != nil {
@@ -170,7 +68,7 @@ func getStatusFromHost(dist, id string) string {
 		return ""
 	}
 	defer res.Body.Close()
-	b, _ := ioutil.ReadAll(res.Body)
+	b, _ := io.ReadAll(res.Body)
 	return string(b)
 }
 
@@ -185,6 +83,7 @@ func sendButtonToHost(dist, id, button string) (err error) {
 }
 
 func remoControl(w http.ResponseWriter, r *http.Request) {
+	log.Println(r)
 	v := r.URL.Query()
 	id := v.Get("id")
 	button := v.Get("button")
@@ -203,9 +102,24 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		t := a.Type
+		fmt.Println(t)
 		switch t {
-		case natureremo.ApplianceTypeLight:
-			remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: id}, button)
+		case ApplianceTypeLight:
+			if button == "toggle" {
+				button = "on"
+				if a.StatusType == StatusTypeSTR {
+					if rpio.Pin(a.StatusPin).Read() == rpio.High {
+						button = "off"
+					}
+				} else {
+					if rpio.Pin(a.StatusPin).Read() == rpio.Low {
+						button = "off"
+					}
+				}
+				remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: id}, button)
+			} else {
+				remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: id}, button)
+			}
 			if button == "on" {
 				if a.StatusType == StatusTypeSTR {
 					rpio.Pin(a.StatusPin).Write(rpio.High)
@@ -219,9 +133,9 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 					rpio.Pin(a.StatusPin).Write(rpio.High)
 				}
 			}
-		case natureremo.ApplianceTypeTV:
+		case ApplianceTypeTV:
 			remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: id}, button)
-		case natureremo.ApplianceTypeIR:
+		case ApplianceTypeIR:
 			switch a.Trigger {
 			case TriggerTimer:
 				d, err := time.ParseDuration(a.Timer)
@@ -250,6 +164,41 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: a.OffSignal})
 					rpio.Pin(a.StatusPin).Write(rpio.Low)
 				}
+			}
+		case ApplianceTypeLocal:
+			log.Println(a.IP)
+			c := natureremo.NewLocalClient(a.IP)
+			if a.Trigger == TriggerTimer {
+				d, err := time.ParseDuration(a.Timer)
+				if err != nil {
+					log.Println(err, r)
+				}
+				if timer[id] == nil {
+					fmt.Println(a.OnLocal.Data)
+					fmt.Println(a.OnLocal.Freq)
+					fmt.Println(a.OnLocal.Format)
+					err := c.Emit(ctx, a.OnLocal)
+					if err != nil {
+						log.Println(err)
+					}
+					fmt.Println("TIMER", a.Name, "Start")
+					timer[id] = time.AfterFunc(d, func() {
+						err := c.Emit(ctx, a.OffLocal)
+						if err != nil {
+							log.Println(err)
+						}
+						timer[id] = nil
+					})
+				} else {
+					fmt.Println("TIMER", a.Name, "Restart")
+					timer[id].Reset(d)
+				}
+				return
+			}
+			if button == "on" {
+				c.Emit(ctx, a.OnLocal)
+			} else {
+				c.Emit(ctx, a.OffLocal)
 			}
 		}
 	} else {
@@ -333,14 +282,14 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 			select {
 			case <-interval:
 				for _, a := range config.Appliances {
-					if a.Type == natureremo.ApplianceTypeIR {
+					if a.Type == ApplianceTypeIR {
 						continue
 					}
 					res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s:%s/?id=%s", host, config.Host.Port, a.ID))
 					if err != nil {
 						goto LOOP
 					}
-					b, _ := ioutil.ReadAll(res.Body)
+					b, _ := io.ReadAll(res.Body)
 					res.Body.Close()
 					s := string(b)
 					fmt.Print(s)
@@ -431,12 +380,15 @@ func serverSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 					button = appliance.OnButton
 				}
 				switch appliance.Type {
-				case natureremo.ApplianceTypeLight:
+				case ApplianceTypeLight:
 					remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, button)
-				case natureremo.ApplianceTypeTV:
+				case ApplianceTypeTV:
 					remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, button)
-				case natureremo.ApplianceTypeIR:
+				case ApplianceTypeIR:
 					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
+				case ApplianceTypeLocal:
+					c := natureremo.NewLocalClient(appliance.IP)
+					c.Emit(ctx, appliance.OnLocal)
 				}
 				if appliance.StatusType == StatusTypeREV {
 					out.Write(rpio.Low)
@@ -449,12 +401,15 @@ func serverSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 					button = appliance.OffButton
 				}
 				switch appliance.Type {
-				case natureremo.ApplianceTypeLight:
+				case ApplianceTypeLight:
 					remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, button)
-				case natureremo.ApplianceTypeTV:
+				case ApplianceTypeTV:
 					remoClient.ApplianceService.SendTVSignal(ctx, &natureremo.Appliance{ID: appliance.ID}, button)
-				case natureremo.ApplianceTypeIR:
+				case ApplianceTypeIR:
 					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OffSignal})
+				case ApplianceTypeLocal:
+					c := natureremo.NewLocalClient(appliance.IP)
+					c.Emit(ctx, appliance.OffLocal)
 				}
 				if appliance.StatusType == StatusTypeREV {
 					out.Write(rpio.High)

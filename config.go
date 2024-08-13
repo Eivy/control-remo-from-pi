@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"io/ioutil"
+	"io"
 	"os"
 
 	"time"
@@ -33,7 +33,7 @@ func ReadConfig() (config Config, err error) {
 	if err != nil {
 		return
 	}
-	b, err := ioutil.ReadAll(f)
+	b, err := io.ReadAll(f)
 	if err != nil {
 		return
 	}
