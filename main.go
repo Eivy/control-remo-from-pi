@@ -174,9 +174,6 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 					log.Println(err, r)
 				}
 				if timer[id] == nil {
-					fmt.Println(a.OnLocal.Data)
-					fmt.Println(a.OnLocal.Freq)
-					fmt.Println(a.OnLocal.Format)
 					err := c.Emit(ctx, a.OnLocal)
 					if err != nil {
 						log.Println(err)
@@ -362,10 +359,21 @@ func serverSide(ctx context.Context, condition rpio.Pin, out rpio.Pin, ch chan r
 					log.Println(appliance, err)
 				}
 				if timer[appliance.ID] == nil {
-					remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
+					if appliance.Type == ApplianceTypeLocal {
+						c := natureremo.NewLocalClient(appliance.IP)
+						c.Emit(ctx, appliance.OnLocal)
+					} else {
+						remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OnSignal})
+					}
 					fmt.Println("TIMER", appliance.Name, "Start")
 					timer[appliance.ID] = time.AfterFunc(d, func() {
-						remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OffSignal})
+						fmt.Println("TIMER", appliance.Name, "End")
+						if appliance.Type == ApplianceTypeLocal {
+							c := natureremo.NewLocalClient(appliance.IP)
+							c.Emit(ctx, appliance.OffLocal)
+						} else {
+							remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: appliance.OffSignal})
+						}
 						timer[appliance.ID] = nil
 					})
 				} else {
