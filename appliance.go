@@ -1,6 +1,12 @@
 package main
 
-import "github.com/tenntenn/natureremo"
+import (
+	"context"
+
+	"github.com/tenntenn/natureremo"
+)
+
+var remoClient *natureremo.Client
 
 type ApplianceType string
 
@@ -11,23 +17,29 @@ const (
 	ApplianceTypeLocal = "LOCAL"
 )
 
-// Appliance is Appliance
-type Appliance struct {
-	ID           string               `yaml:"ID"`
-	Name         string               `yaml:"Name"`
-	Type         ApplianceType        `yaml:"Type"`
-	SwitchPin    int                  `yaml:"SwitchPin"`
-	StatusPin    int                  `yaml:"StatusPin"`
-	StatusType   StatusType           `yaml:"StatusType"`
-	OnButton     string               `yaml:"OnButton"`
-	OffButton    string               `yaml:"OffButton"`
-	OnSignal     string               `yaml:"OnSignal"`
-	OffSignal    string               `yaml:"OffSignal"`
-	OnLocal      *natureremo.IRSignal `yaml:"OnLocal"`
-	OffLocal     *natureremo.IRSignal `yaml:"OffLocal"`
-	Trigger      Trigger              `yaml:"Trigger"`
-	Timer        string               `yaml:"Timer"`
-	ConditionPin int                  `yaml:"ConditionPin"`
-	Buttons      map[string]string    `yaml:"Buttons"`
-	IP           string               `yaml:"IP"`
+// ApplianceData is ApplianceData
+type ApplianceData struct {
+	ID           string        `yaml:"ID"`
+	Name         string        `yaml:"Name"`
+	Type         ApplianceType `yaml:"Type"`
+	SwitchPin    *int          `yaml:"SwitchPin"`
+	StatusPin    *int          `yaml:"StatusPin"`
+	StatusType   *StatusType   `yaml:"StatusType"`
+	Trigger      Trigger       `yaml:"Trigger"`
+	Timer        *string       `yaml:"Timer"`
+	ConditionPin *int          `yaml:"ConditionPin"`
+	sender       Sender
+	display      Display
+}
+
+type Sender interface {
+	On(ctx context.Context)
+	Off(ctx context.Context)
+	Send(ctx context.Context, button string)
+}
+
+type Display interface {
+	Show()
+	Get() error
+	Set(string)
 }

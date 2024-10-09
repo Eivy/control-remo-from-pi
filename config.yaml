@@ -1,0 +1,94 @@
+User:
+    ID: d4zaceS-MPY4hWT2E3shpxGXBacXlN80_l7Q7GnuWo0.-18BgHwaDuW-pzqVRdy31hySASDpH2ahi-oislZLnt8
+Appliances:
+    a1e00798-4975-4c69-a46d-72703b39dc00:
+      Name: 階段
+      ID: a1e00798-4975-4c69-a46d-72703b39dc00
+      Type: LOCAL
+      SwitchPin: 22
+      Trigger: TIMER
+      Timer: 30s
+      IP: 192.168.0.18
+      OnLocal: 
+        Freq: 38
+        Data: [9050, 4626, 506, 636, 516, 617, 489, 660, 520, 616, 524, 620, 512, 637, 505, 639, 504, 639, 489, 1754, 489, 1772, 504, 1749, 508, 1747, 485, 1772, 502, 1747, 507, 1749, 504, 1749, 503, 1751, 501, 637, 509, 1749, 478, 665, 499, 642, 518, 613, 524, 1732, 557, 582, 487, 660, 516, 1731, 514, 635, 504, 1750, 480, 1775, 480, 1771, 503, 636, 506, 1747, 504]
+        Format: us
+      OffLocal:
+        Freq: 38
+        Data: []
+        Format: us
+      ConditionPin: 27
+    ab256284-9729-4bd4-8cbb-578c986d6120:
+      Name: 寝室
+      ID: ab256284-9729-4bd4-8cbb-578c986d6120
+      Type: LIGHT
+      SwitchPin: 26
+      StatusPin: 6
+      StatusType: REV
+      Trigger: TOGGLE
+    588198e1-6881-4cf4-8fbf-a4a27d8ccb59:
+      Name: リビング
+      ID: 588198e1-6881-4cf4-8fbf-a4a27d8ccb59
+      Type: LIGHT
+      SwitchPin: 11
+      StatusPin: 10
+      StatusType: REV
+      Trigger: TOGGLE
+    f236b466-45e5-4cfd-a479-df362a318c7b:
+      Name: 書斎
+      ID: f236b466-45e5-4cfd-a479-df362a318c7b
+      Type: LIGHT
+      SwitchPin: 9
+      StatusPin: 14
+      StatusType: REV
+      Trigger: TOGGLE
+Host: rpi-z1.local
+
+
+User:
+    ID: d4zaceS-MPY4hWT2E3shpxGXBacXlN80_l7Q7GnuWo0.-18BgHwaDuW-pzqVRdy31hySASDpH2ahi-oislZLnt8
+Server:
+  Port: 8080
+Appliances:
+    6389074e-ffae-40c9-840f-d76932b7d989:
+      Name: 階段
+      ID: a1e00798-4975-4c69-a46d-72703b39dc00
+      Type: LOCAL
+      SwitchPin: 22
+      Trigger: TIMER
+      Timer: 30s
+      IP: 192.168.0.18
+      OnLocal:
+        freq: 38
+        data: [9050,4626,506,636,516,617,489,660,520,616,524,620,512,637,505,639,504,639,489,1754,489,1772,504,1749,508,1747,485,1772,502,1747,507,1749,504,1749,503,1751,501,637,509,1749,478,665,499,642,518,613,524,1732,557,582,487,660,516,1731,514,635,504,1750,480,1775,480,1771,503,636,506,1747,504]
+        format: us
+      OffLocal:
+        freq: 38
+        data: [9032,4628,513,616,515,639,504,638,481,661,478,662,516,614,489,660,510,633,506,1751,501,1749,481,1770,483,1769,517,1730,486,1775,507,1743,504,1747,502,1749,507,1744,507,1749,504,631,487,662,544,583,513,1751,505,634,515,617,514,634,486,654,520,1727,512,1751,543,1702,517,615,517,1745,507,40167,9059,2330,482]
+        format: us
+      ConditionPin: 27
+    5fafc56f-1a6f-4ecc-8f93-7fcca7309d48:
+      Name: 仕事場
+      ID: 5fafc56f-1a6f-4ecc-8f93-7fcca7309d48
+      Type: LIGHT
+      SwitchPin: 24
+      StatusPin: 18
+      StatusType: REV
+      Trigger: TOGGLE
+    5eae53cf-384d-470a-857b-eacea3e36642:
+      Name: 寝室
+      ID: 5eae53cf-384d-470a-857b-eacea3e36642
+      Type: LIGHT
+      SwitchPin: 19
+      StatusPin: 25
+      StatusType: REV
+      Trigger: TOGGLE
+    03036f95-5bfd-4c82-a52a-2cf72078d8e8:
+      Name: 南
+      ID: 03036f95-5bfd-4c82-a52a-2cf72078d8e8
+      Type: LIGHT
+      SwitchPin: 26
+      StatusPin: 12
+      StatusType: REV
+      Trigger: TOGGLE
+
