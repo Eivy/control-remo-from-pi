@@ -19,6 +19,7 @@ type Collector struct {
 	remoClient      *natureremo.Client
 	appliances      map[string]*ApplianceState
 	apiMetrics      *APIMetrics
+	mqttMetrics     *MQTTMetrics
 	lastUpdateTime  time.Time
 	cacheDuration   time.Duration
 
@@ -30,6 +31,9 @@ type Collector struct {
 	apiRateLimitLimitDesc       *prometheus.Desc
 	apiRateLimitRemainingDesc   *prometheus.Desc
 	apiRateLimitResetDesc       *prometheus.Desc
+	mqttMessagesPublishedDesc   *prometheus.Desc
+	mqttMessagesReceivedDesc    *prometheus.Desc
+	mqttConnectionStatusDesc    *prometheus.Desc
 	lastUpdateTimestampDesc     *prometheus.Desc
 }
 
@@ -50,6 +54,12 @@ type APIMetrics struct {
 	RateLimitReset   float64
 }
 
+type MQTTMetrics struct {
+	MessagesPublished float64
+	MessagesReceived  float64
+	ConnectionStatus  float64 // 1 = connected, 0 = disconnected
+}
+
 func NewCollector(client *natureremo.Client, cacheDuration time.Duration) *Collector {
 	return &Collector{
 		remoClient:     client,
@@ -58,6 +68,7 @@ func NewCollector(client *natureremo.Client, cacheDuration time.Duration) *Colle
 			RequestCount:    make(map[string]float64),
 			RequestDuration: make(map[string]float64),
 		},
+		mqttMetrics: &MQTTMetrics{},
 		cacheDuration: cacheDuration,
 
 		// Define metric descriptors
@@ -96,6 +107,21 @@ func NewCollector(client *natureremo.Client, cacheDuration time.Duration) *Colle
 			"API rate limit reset timestamp",
 			nil, nil,
 		),
+		mqttMessagesPublishedDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "mqtt", "messages_published_total"),
+			"Total number of MQTT messages published",
+			nil, nil,
+		),
+		mqttMessagesReceivedDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "mqtt", "messages_received_total"),
+			"Total number of MQTT messages received",
+			nil, nil,
+		),
+		mqttConnectionStatusDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "mqtt", "connection_status"),
+			"MQTT connection status (1 = connected, 0 = disconnected)",
+			nil, nil,
+		),
 		lastUpdateTimestampDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "last_update_timestamp"),
 			"Timestamp of the last metrics update",
@@ -113,6 +139,9 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.apiRateLimitLimitDesc
 	ch <- c.apiRateLimitRemainingDesc
 	ch <- c.apiRateLimitResetDesc
+	ch <- c.mqttMessagesPublishedDesc
+	ch <- c.mqttMessagesReceivedDesc
+	ch <- c.mqttConnectionStatusDesc
 	ch <- c.lastUpdateTimestampDesc
 }
 
@@ -186,6 +215,23 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		c.apiMetrics.RateLimitReset,
 	)
 
+	// MQTT metrics
+	ch <- prometheus.MustNewConstMetric(
+		c.mqttMessagesPublishedDesc,
+		prometheus.CounterValue,
+		c.mqttMetrics.MessagesPublished,
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.mqttMessagesReceivedDesc,
+		prometheus.CounterValue,
+		c.mqttMetrics.MessagesReceived,
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.mqttConnectionStatusDesc,
+		prometheus.GaugeValue,
+		c.mqttMetrics.ConnectionStatus,
+	)
+
 	// Last update timestamp
 	ch <- prometheus.MustNewConstMetric(
 		c.lastUpdateTimestampDesc,
@@ -238,6 +284,34 @@ func (c *Collector) UpdateAPIMetrics(endpoint string, statusCode int, duration f
 		c.apiMetrics.RateLimitRemain = float64(rateLimit.Remaining)
 		c.apiMetrics.RateLimitReset = float64(rateLimit.Reset)
 	}
+}
+
+// UpdateMQTTMetrics updates MQTT-related metrics
+func (c *Collector) UpdateMQTTMetrics(messagesPublished, messagesReceived float64, connected bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.mqttMetrics.MessagesPublished = messagesPublished
+	c.mqttMetrics.MessagesReceived = messagesReceived
+	if connected {
+		c.mqttMetrics.ConnectionStatus = 1
+	} else {
+		c.mqttMetrics.ConnectionStatus = 0
+	}
+}
+
+// IncrementMQTTPublished increments the published message counter
+func (c *Collector) IncrementMQTTPublished() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mqttMetrics.MessagesPublished++
+}
+
+// IncrementMQTTReceived increments the received message counter
+func (c *Collector) IncrementMQTTReceived() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mqttMetrics.MessagesReceived++
 }
 
 type RateLimitInfo struct {

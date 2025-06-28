@@ -6,9 +6,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/eivy/control-remo-from-pi/metrics"
+	"github.com/eivy/control-remo-from-pi/mqtt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tenntenn/natureremo"
@@ -17,6 +19,7 @@ import (
 var config Config
 var timer = make(map[string]*time.Timer)
 var metricsCollector *metrics.Collector
+var mqttClient *mqtt.Client
 
 func main() {
 	var err error
@@ -32,11 +35,64 @@ func main() {
 	}
 	remoClient = natureremo.NewClient(remoSecret)
 	
+	// Initialize MQTT client if broker is configured
+	mqttBroker := os.Getenv("MQTT_BROKER")
+	if mqttBroker != "" {
+		mqttPortStr := os.Getenv("MQTT_PORT")
+		if mqttPortStr == "" {
+			mqttPortStr = "1883"
+		}
+		mqttPort, err := strconv.Atoi(mqttPortStr)
+		if err != nil {
+			log.Fatalf("Invalid MQTT_PORT: %v", err)
+		}
+		
+		mqttConfig := mqtt.Config{
+			Broker:   mqttBroker,
+			Port:     mqttPort,
+			Username: os.Getenv("MQTT_USERNAME"),
+			Password: os.Getenv("MQTT_PASSWORD"),
+			ClientID: os.Getenv("MQTT_CLIENT_ID"),
+		}
+		
+		if mqttConfig.ClientID == "" {
+			mqttConfig.ClientID = "remo-controller"
+		}
+		
+		mqttClient = mqtt.NewClient(mqttConfig)
+		if err := mqttClient.Connect(); err != nil {
+			log.Printf("Failed to connect to MQTT broker: %v", err)
+			mqttClient = nil
+		} else {
+			log.Printf("MQTT client initialized successfully")
+		}
+	}
+	
 	// Initialize metrics collector
 	metricsCollector = metrics.NewCollector(remoClient, 60*time.Second)
 	prometheus.MustRegister(metricsCollector)
 	
 	ctx := context.Background()
+	
+	// Start MQTT command subscription if client is available
+	if mqttClient != nil {
+		if err := mqttClient.SubscribeCommands(ctx, &MQTTCommandHandler{}); err != nil {
+			log.Printf("Failed to subscribe to MQTT commands: %v", err)
+		}
+		mqttClient.StartStatusPublisher(ctx)
+		
+		// Update MQTT connection metrics
+		if metricsCollector != nil {
+			go func() {
+				for {
+					time.Sleep(10 * time.Second)
+					connected := mqttClient.IsConnected()
+					metricsCollector.UpdateMQTTMetrics(0, 0, connected)
+				}
+			}()
+		}
+	}
+	
 	t := config.CheckInterval
 	if t == 0 {
 		t = 20
@@ -108,8 +164,16 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 			default:
 				if button == "on" {
 					a.sender.On(ctx)
+					// Publish status change to MQTT
+					if a.Type == ApplianceTypeLight {
+						publishApplianceStatusChange(a.ID, a.Name, string(a.Type), true)
+					}
 				} else {
 					a.sender.Off(ctx)
+					// Publish status change to MQTT
+					if a.Type == ApplianceTypeLight {
+						publishApplianceStatusChange(a.ID, a.Name, string(a.Type), false)
+					}
 				}
 			}
 		}
@@ -157,14 +221,86 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 					ap.display.Set(a.Light.State.Power)
 					ap.display.Show()
 					
+					powerState := a.Light.State.Power == "on"
+					
 					// Update appliance metrics
 					if metricsCollector != nil {
-						powerState := a.Light.State.Power == "on"
 						metricsCollector.UpdateApplianceState(a.ID, a.Nickname, "light", powerState)
 					}
+					
+					// Publish status change to MQTT
+					publishApplianceStatusChange(a.ID, a.Nickname, "light", powerState)
 				}
 			}
 		}
+	}
+}
+
+// MQTTCommandHandler handles MQTT commands
+type MQTTCommandHandler struct{}
+
+// HandleCommand processes MQTT commands for appliance control
+func (h *MQTTCommandHandler) HandleCommand(cmd mqtt.Command) error {
+	ctx := context.Background()
+	
+	// Update MQTT received metrics
+	if metricsCollector != nil {
+		metricsCollector.IncrementMQTTReceived()
+	}
+	
+	// Find the appliance by ID
+	appliance, exists := config.Appliances[cmd.ApplianceID]
+	if !exists {
+		return fmt.Errorf("appliance not found: %s", cmd.ApplianceID)
+	}
+	
+	// Execute the command
+	switch cmd.Button {
+	case "on":
+		appliance.sender.On(ctx)
+	case "off":
+		appliance.sender.Off(ctx)
+	default:
+		appliance.sender.Send(ctx, cmd.Button)
+	}
+	
+	// Publish status change if this is a light appliance
+	if appliance.Type == ApplianceTypeLight && mqttClient != nil {
+		powerState := cmd.Button == "on" || (cmd.Button == "toggle" && appliance.display != nil)
+		
+		status := mqtt.Status{
+			ApplianceID:   cmd.ApplianceID,
+			ApplianceName: appliance.Name,
+			Type:          string(appliance.Type),
+			PowerState:    powerState,
+			Timestamp:     time.Now(),
+		}
+		
+		mqttClient.PublishStatusAsync(status)
+	}
+	
+	return nil
+}
+
+// publishApplianceStatusChange publishes appliance status changes to MQTT
+func publishApplianceStatusChange(applianceID, applianceName, applianceType string, powerState bool) {
+	if mqttClient == nil {
+		return
+	}
+	
+	status := mqtt.Status{
+		ApplianceID:   applianceID,
+		ApplianceName: applianceName,
+		Type:          applianceType,
+		PowerState:    powerState,
+		Timestamp:     time.Now(),
+	}
+	
+	mqttClient.PublishStatusAsync(status)
+	
+	// Update MQTT metrics
+	if metricsCollector != nil {
+		metricsCollector.IncrementMQTTPublished()
 	}
 }
 
