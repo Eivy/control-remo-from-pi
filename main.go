@@ -20,6 +20,7 @@ var config Config
 var timer = make(map[string]*time.Timer)
 var metricsCollector *metrics.Collector
 var mqttClient *mqtt.Client
+var lastKnownStates = make(map[string]*ApplianceStatus)
 
 func main() {
 	var err error
@@ -135,46 +136,44 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(404)
 			return
 		}
-		a.sender.Send(ctx, button)
-		t := a.Type
-		switch t {
-		case ApplianceTypeLight:
-			a.sender.Send(ctx, button)
-		case ApplianceTypeTV:
-			remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: id}, button)
-		case ApplianceTypeIR, ApplianceTypeLocal:
-			switch a.Trigger {
-			case TriggerTimer:
-				d, err := time.ParseDuration(*a.Timer)
-				if err != nil {
-					log.Println(err, r)
+		
+		// Handle timer-based appliances specially
+		if a.Trigger == TriggerTimer {
+			d, err := time.ParseDuration(*a.Timer)
+			if err != nil {
+				log.Printf("Invalid timer duration for appliance %s: %v", a.ID, err)
+				statusCode = 400
+				w.WriteHeader(400)
+				return
+			}
+			
+			if timer[a.ID] == nil {
+				fmt.Println("TIMER", a.Name, "Start")
+				// Execute ON command and publish status
+				if err := executeApplianceCommandAndPublishStatus(ctx, a, "on"); err != nil {
+					log.Printf("Failed to execute timer ON command: %v", err)
+					statusCode = 500
+					w.WriteHeader(500)
+					return
 				}
-				if timer[a.ID] == nil {
-					a.sender.On(ctx)
-					fmt.Println("TIMER", a.Name, "Start")
-					timer[a.ID] = time.AfterFunc(d, func() {
-						fmt.Println("TIMER", a.Name, "End")
-						a.sender.Off(ctx)
-						timer[a.ID] = nil
-					})
-				} else {
-					fmt.Println("TIMER", a.Name, "Restart")
-					timer[a.ID].Reset(d)
-				}
-			default:
-				if button == "on" {
-					a.sender.On(ctx)
-					// Publish status change to MQTT
-					if a.Type == ApplianceTypeLight {
-						publishApplianceStatusChange(a.ID, a.Name, string(a.Type), true)
-					}
-				} else {
-					a.sender.Off(ctx)
-					// Publish status change to MQTT
-					if a.Type == ApplianceTypeLight {
-						publishApplianceStatusChange(a.ID, a.Name, string(a.Type), false)
-					}
-				}
+				
+				// Set timer to turn off later
+				timer[a.ID] = time.AfterFunc(d, func() {
+					fmt.Println("TIMER", a.Name, "End")
+					executeApplianceCommandAndPublishStatus(context.Background(), a, "off")
+					timer[a.ID] = nil
+				})
+			} else {
+				fmt.Println("TIMER", a.Name, "Restart")
+				timer[a.ID].Reset(d)
+			}
+		} else {
+			// Execute command and publish status based on actual API response
+			if err := executeApplianceCommandAndPublishStatus(ctx, a, button); err != nil {
+				log.Printf("Failed to execute command %s for appliance %s: %v", button, a.ID, err)
+				statusCode = 500
+				w.WriteHeader(500)
+				return
 			}
 		}
 	} else {
@@ -215,22 +214,28 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 			}
 			
 			for _, a := range as {
-				switch a.Type {
-				case natureremo.ApplianceTypeLight:
-					ap := config.Appliances[a.ID]
+				ap := config.Appliances[a.ID]
+				
+				// Get appliance status
+				status, err := getApplianceStatusFromAPIResponse(a)
+				if err != nil {
+					log.Printf("Failed to parse status for appliance %s: %v", a.ID, err)
+					continue
+				}
+				
+				// Update display for lights
+				if a.Type == natureremo.ApplianceTypeLight && ap.display != nil {
 					ap.display.Set(a.Light.State.Power)
 					ap.display.Show()
-					
-					powerState := a.Light.State.Power == "on"
-					
-					// Update appliance metrics
-					if metricsCollector != nil {
-						metricsCollector.UpdateApplianceState(a.ID, a.Nickname, "light", powerState)
-					}
-					
-					// Publish status change to MQTT
-					publishApplianceStatusChange(a.ID, a.Nickname, "light", powerState)
 				}
+				
+				// Update appliance metrics
+				if metricsCollector != nil {
+					metricsCollector.UpdateApplianceState(status.ID, status.Name, status.Type, status.PowerOn)
+				}
+				
+				// Publish status change to MQTT only if changed
+				publishApplianceStatusIfChanged(status.ID, status.Name, status.Type, status.PowerOn)
 			}
 		}
 	}
@@ -254,32 +259,122 @@ func (h *MQTTCommandHandler) HandleCommand(cmd mqtt.Command) error {
 		return fmt.Errorf("appliance not found: %s", cmd.ApplianceID)
 	}
 	
-	// Execute the command
-	switch cmd.Button {
-	case "on":
-		appliance.sender.On(ctx)
-	case "off":
-		appliance.sender.Off(ctx)
-	default:
-		appliance.sender.Send(ctx, cmd.Button)
+	// Execute the command and publish status based on actual API response
+	return executeApplianceCommandAndPublishStatus(ctx, appliance, cmd.Button)
+}
+
+// ApplianceStatus represents the current status of an appliance
+type ApplianceStatus struct {
+	ID        string
+	Name      string
+	Type      string
+	PowerOn   bool
+	Available bool
+}
+
+// getApplianceStatus retrieves the current status of an appliance from Nature Remo API
+func getApplianceStatus(ctx context.Context, applianceID string) (*ApplianceStatus, error) {
+	appliances, err := remoClient.ApplianceService.GetAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get appliances: %v", err)
 	}
 	
-	// Publish status change if this is a light appliance
-	if appliance.Type == ApplianceTypeLight && mqttClient != nil {
-		powerState := cmd.Button == "on" || (cmd.Button == "toggle" && appliance.display != nil)
-		
-		status := mqtt.Status{
-			ApplianceID:   cmd.ApplianceID,
-			ApplianceName: appliance.Name,
-			Type:          string(appliance.Type),
-			PowerState:    powerState,
-			Timestamp:     time.Now(),
+	for _, a := range appliances {
+		if a.ID == applianceID {
+			status := &ApplianceStatus{
+				ID:        a.ID,
+				Name:      a.Nickname,
+				Available: true,
+			}
+			
+			switch a.Type {
+			case natureremo.ApplianceTypeLight:
+				status.Type = "light"
+				status.PowerOn = a.Light.State.Power == "on"
+			case natureremo.ApplianceTypeTV:
+				status.Type = "tv"
+				// For TV, check if it has any available buttons (indicates it's responsive)
+				status.PowerOn = len(a.TV.Buttons) > 0
+			case natureremo.ApplianceTypeIR:
+				status.Type = "ir"
+				// For IR devices, assume they're available if they have signals
+				status.PowerOn = len(a.Signals) > 0
+			case natureremo.ApplianceTypeAirCon:
+				status.Type = "aircon"
+				// For AC, check if it's on based on operation mode
+				if a.AirConSettings != nil {
+					status.PowerOn = a.AirConSettings.OperationMode != ""
+				} else {
+					status.PowerOn = false
+				}
+			default:
+				status.Type = "unknown"
+				status.PowerOn = false
+			}
+			
+			return status, nil
 		}
-		
-		mqttClient.PublishStatusAsync(status)
 	}
 	
-	return nil
+	return nil, fmt.Errorf("appliance not found: %s", applianceID)
+}
+
+// getApplianceStatusFromAPIResponse extracts status from Nature Remo API response
+func getApplianceStatusFromAPIResponse(a *natureremo.Appliance) (*ApplianceStatus, error) {
+	status := &ApplianceStatus{
+		ID:        a.ID,
+		Name:      a.Nickname,
+		Available: true,
+	}
+	
+	switch a.Type {
+	case natureremo.ApplianceTypeLight:
+		status.Type = "light"
+		status.PowerOn = a.Light.State.Power == "on"
+	case natureremo.ApplianceTypeTV:
+		status.Type = "tv"
+		// For TV, check if it has any available buttons (indicates it's responsive)
+		status.PowerOn = len(a.TV.Buttons) > 0
+	case natureremo.ApplianceTypeIR:
+		status.Type = "ir"
+		// For IR devices, assume they're available if they have signals
+		status.PowerOn = len(a.Signals) > 0
+	case natureremo.ApplianceTypeAirCon:
+		status.Type = "aircon"
+		// For AC, check if it's on based on operation mode
+		if a.AirConSettings != nil {
+			status.PowerOn = a.AirConSettings.OperationMode != ""
+		} else {
+			status.PowerOn = false
+		}
+	default:
+		status.Type = "unknown"
+		status.PowerOn = false
+	}
+	
+	return status, nil
+}
+
+// publishApplianceStatusIfChanged publishes appliance status to MQTT only if changed
+func publishApplianceStatusIfChanged(applianceID, applianceName, applianceType string, powerState bool) {
+	// Check if the state has actually changed
+	lastState, exists := lastKnownStates[applianceID]
+	if exists && lastState.PowerOn == powerState {
+		// State hasn't changed, don't publish
+		return
+	}
+	
+	// Update the last known state
+	lastKnownStates[applianceID] = &ApplianceStatus{
+		ID:        applianceID,
+		Name:      applianceName,
+		Type:      applianceType,
+		PowerOn:   powerState,
+		Available: true,
+	}
+	
+	// Publish the status change
+	publishApplianceStatusChange(applianceID, applianceName, applianceType, powerState)
 }
 
 // publishApplianceStatusChange publishes appliance status changes to MQTT
@@ -302,6 +397,110 @@ func publishApplianceStatusChange(applianceID, applianceName, applianceType stri
 	if metricsCollector != nil {
 		metricsCollector.IncrementMQTTPublished()
 	}
+}
+
+// executeApplianceCommandAndPublishStatus executes a command and publishes the resulting status
+func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance ApplianceData, command string) error {
+	var err error
+	
+	// Execute the command
+	switch command {
+	case "on":
+		err = executeApplianceOn(ctx, appliance)
+	case "off":
+		err = executeApplianceOff(ctx, appliance)
+	case "toggle":
+		err = executeApplianceToggle(ctx, appliance)
+	default:
+		// For other commands, just send the button
+		appliance.sender.Send(ctx, command)
+	}
+	
+	if err != nil {
+		log.Printf("Failed to execute command %s for appliance %s: %v", command, appliance.ID, err)
+		return err
+	}
+	
+	// Wait a moment for the command to take effect
+	time.Sleep(500 * time.Millisecond)
+	
+	// Get the current status and publish to MQTT
+	status, err := getApplianceStatus(ctx, appliance.ID)
+	if err != nil {
+		log.Printf("Failed to get status for appliance %s after command: %v", appliance.ID, err)
+		// Fallback: publish expected status based on command
+		publishFallbackStatus(appliance, command)
+		return nil
+	}
+	
+	// Publish the actual status only if changed
+	publishApplianceStatusIfChanged(status.ID, status.Name, status.Type, status.PowerOn)
+	
+	return nil
+}
+
+// executeApplianceOn turns on an appliance and returns any error
+func executeApplianceOn(ctx context.Context, appliance ApplianceData) error {
+	switch appliance.Type {
+	case ApplianceTypeLight:
+		appliance.sender.On(ctx)
+	default:
+		appliance.sender.Send(ctx, "on")
+	}
+	return nil
+}
+
+// executeApplianceOff turns off an appliance and returns any error
+func executeApplianceOff(ctx context.Context, appliance ApplianceData) error {
+	switch appliance.Type {
+	case ApplianceTypeLight:
+		appliance.sender.Off(ctx)
+	default:
+		appliance.sender.Send(ctx, "off")
+	}
+	return nil
+}
+
+// executeApplianceToggle toggles an appliance state
+func executeApplianceToggle(ctx context.Context, appliance ApplianceData) error {
+	if appliance.Type == ApplianceTypeLight {
+		// For lights, get current status and toggle
+		status, err := getApplianceStatus(ctx, appliance.ID)
+		if err != nil {
+			// Fallback: just send toggle command
+			appliance.sender.Send(ctx, "toggle")
+			return nil
+		}
+		
+		if status.PowerOn {
+			return executeApplianceOff(ctx, appliance)
+		} else {
+			return executeApplianceOn(ctx, appliance)
+		}
+	} else {
+		// For other types, just send toggle command
+		appliance.sender.Send(ctx, "toggle")
+	}
+	return nil
+}
+
+// publishFallbackStatus publishes expected status when API status check fails
+func publishFallbackStatus(appliance ApplianceData, command string) {
+	var powerState bool
+	switch command {
+	case "on":
+		powerState = true
+	case "off":
+		powerState = false
+	case "toggle":
+		// For toggle, we can't know the state without checking, so skip publishing
+		return
+	default:
+		// For other commands, assume device is on
+		powerState = true
+	}
+	
+	publishApplianceStatusChange(appliance.ID, appliance.Name, string(appliance.Type), powerState)
 }
 
 
