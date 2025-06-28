@@ -9,13 +9,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eivy/control-remo-from-pi/metrics"
 	"github.com/hashicorp/mdns"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	rpio "github.com/stianeikeland/go-rpio"
 	"github.com/tenntenn/natureremo"
 )
 
 var config Config
 var timer = make(map[string]*time.Timer)
+var metricsCollector *metrics.Collector
 
 func main() {
 	var err error
@@ -24,6 +28,11 @@ func main() {
 		log.Fatal(err)
 	}
 	remoClient = natureremo.NewClient(config.User.ID)
+	
+	// Initialize metrics collector
+	metricsCollector = metrics.NewCollector(remoClient, 60*time.Second)
+	prometheus.MustRegister(metricsCollector)
+	
 	ctx := context.Background()
 	rpio.Open()
 	defer rpio.Close()
@@ -55,6 +64,7 @@ func main() {
 	if config.Server != nil {
 		go statusCheck(&ctx, t)
 		http.HandleFunc("/", remoControl)
+		http.Handle("/metrics", promhttp.Handler())
 		http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Server.Port), nil)
 	} else {
 		statusCheck(&ctx, t)
@@ -83,15 +93,28 @@ func sendButtonToHost(dist, id, button string) (err error) {
 }
 
 func remoControl(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	
 	v := r.URL.Query()
 	id := v.Get("id")
 	button := v.Get("button")
 	fmt.Printf("web requested: %s, %s\n", id, button)
+	
+	// Default to success, will be updated if error occurs
+	statusCode := 200
+	defer func() {
+		if metricsCollector != nil {
+			duration := time.Since(start).Seconds()
+			metricsCollector.UpdateAPIMetrics("remoControl", statusCode, duration, nil)
+		}
+	}()
 	if button != "" {
 		ctx := context.Background()
 		a, ok := config.Appliances[id]
 		if !ok {
 			fmt.Println("missing")
+			statusCode = 404
+			w.WriteHeader(404)
 			return
 		}
 		if a.ConditionPin != nil {
@@ -189,16 +212,35 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 		for {
 			select {
 			case <-interval:
+				start := time.Now()
 				as, err := remoClient.ApplianceService.GetAll(*ctx)
+				duration := time.Since(start).Seconds()
+				
 				if err != nil {
 					log.Println(err)
+					// Record API error metrics
+					if metricsCollector != nil {
+						metricsCollector.UpdateAPIMetrics("GetAll", 500, duration, nil)
+					}
+				} else {
+					// Record successful API call metrics
+					if metricsCollector != nil {
+						metricsCollector.UpdateAPIMetrics("GetAll", 200, duration, nil)
+					}
 				}
+				
 				for _, a := range as {
 					switch a.Type {
 					case natureremo.ApplianceTypeLight:
 						ap := config.Appliances[a.ID]
 						ap.display.Set(a.Light.State.Power)
 						ap.display.Show()
+						
+						// Update appliance metrics
+						if metricsCollector != nil {
+							powerState := a.Light.State.Power == "on"
+							metricsCollector.UpdateApplianceState(a.ID, a.Nickname, "light", powerState)
+						}
 					}
 				}
 			}
@@ -221,6 +263,12 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 
 func pinCheck(num int, in rpio.Pin, ch chan rpio.State) {
 	before := in.Read()
+	
+	// Initialize GPIO state metrics
+	if metricsCollector != nil {
+		metricsCollector.UpdateGPIOState(num, before == rpio.High)
+	}
+	
 	for {
 		select {
 		default:
@@ -229,6 +277,15 @@ func pinCheck(num int, in rpio.Pin, ch chan rpio.State) {
 				fmt.Println(num)
 				ch <- tmp
 				before = tmp
+				
+				// Update GPIO metrics on state change
+				if metricsCollector != nil {
+					metricsCollector.UpdateGPIOState(num, tmp == rpio.High)
+					if tmp == rpio.Low {
+						// Count switch press (transition to low = button press)
+						metricsCollector.IncrementGPIOSwitchPress(num)
+					}
+				}
 			}
 			time.Sleep(time.Millisecond * 100)
 		}
