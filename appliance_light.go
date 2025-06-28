@@ -2,9 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"net/http"
 
 	"github.com/tenntenn/natureremo"
 )
@@ -46,13 +43,6 @@ func (a *ApplianceLight) Set(value string) {
 }
 
 func (a *ApplianceLight) Get() (err error) {
-	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s:%s/?id=%s", config.Host.Addr, config.Host.Port, a.ID))
-	if err != nil {
-		return
-	}
-	b, _ := io.ReadAll(res.Body)
-	defer res.Body.Close()
-	s := string(b) == "on"
-	a.Status = &s
-	return
+	// Status is maintained in memory only, no external server requests
+	return nil
 }

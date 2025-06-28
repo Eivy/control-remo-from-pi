@@ -14,16 +14,9 @@ import (
 
 // Config is configuration
 type Config struct {
-	User struct {
-		ID string `yaml:"ID"`
-	} `yaml:"User"`
 	Appliances    map[string]ApplianceData `yaml:"Appliances"`
 	CheckInterval time.Duration            `yaml:"CeckInterval"`
 	Server        *Server                  `yaml:"Server"`
-	Host          *struct {
-		Addr string `yaml:"Addr"`
-		Port string `yaml:"Port"`
-	} `yaml:"Host"`
 }
 
 // ReadConfig returns config read from config file which is in excute path or specified in command args
@@ -40,9 +33,6 @@ func ReadConfig() (config Config, err error) {
 		return
 	}
 	var tmp struct {
-		User struct {
-			ID string `yaml:"ID"`
-		} `yaml:"User"`
 		Appliances map[string]struct {
 			ID        string              `yaml:"ID"`
 			Name      string              `yaml:"Name"`
@@ -60,10 +50,6 @@ func ReadConfig() (config Config, err error) {
 		} `yaml:"Appliances"`
 		CheckInterval time.Duration `yaml:"CeckInterval"`
 		Server        *Server       `yaml:"Server"`
-		Host          *struct {
-			Addr string `yaml:"Addr"`
-			Port string `yaml:"Port"`
-		} `yaml:"Host"`
 	}
 	err = yaml.Unmarshal(b, &tmp)
 	appliances := make(map[string]ApplianceData)
@@ -109,10 +95,8 @@ func ReadConfig() (config Config, err error) {
 		appliances[k] = tmp
 	}
 	config = Config{
-		Host:          tmp.Host,
 		Server:        tmp.Server,
 		CheckInterval: tmp.CheckInterval,
-		User:          tmp.User,
 		Appliances:    appliances,
 	}
 	return

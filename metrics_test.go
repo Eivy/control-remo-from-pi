@@ -17,7 +17,7 @@ func TestMetricsEndpoint(t *testing.T) {
 	// Create a new registry to avoid conflicts
 	registry := prometheus.NewRegistry()
 	
-	// Create a mock Nature Remo client
+	// Create a mock Nature Remo client (using test token)
 	client := natureremo.NewClient("test-token")
 	
 	// Create metrics collector

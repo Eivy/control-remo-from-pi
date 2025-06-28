@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/eivy/control-remo-from-pi/metrics"
@@ -24,7 +24,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	remoClient = natureremo.NewClient(config.User.ID)
+	
+	// Get Remo secret from environment variable
+	remoSecret := os.Getenv("REMO_SECRET")
+	if remoSecret == "" {
+		log.Fatal("REMO_SECRET environment variable is required")
+	}
+	remoClient = natureremo.NewClient(remoSecret)
 	
 	// Initialize metrics collector
 	metricsCollector = metrics.NewCollector(remoClient, 60*time.Second)
@@ -46,26 +52,7 @@ func main() {
 	}
 }
 
-func getStatusFromHost(dist, id string) string {
-	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s", dist, id))
-	if err != nil {
-		fmt.Println(err)
-		return ""
-	}
-	defer res.Body.Close()
-	b, _ := io.ReadAll(res.Body)
-	return string(b)
-}
 
-func sendButtonToHost(dist, id, button string) (err error) {
-	res, err := http.DefaultClient.Get(fmt.Sprintf("http://%s/?id=%s&button=%s", dist, id, button))
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	res.Body.Close()
-	return
-}
 
 func remoControl(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
@@ -142,54 +129,39 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 }
 
 func statusCheck(ctx *context.Context, intervalSec time.Duration) {
-	if config.Host == nil {
-		interval := time.Tick(time.Second * intervalSec)
-		for {
-			select {
-			case <-interval:
-				start := time.Now()
-				as, err := remoClient.ApplianceService.GetAll(*ctx)
-				duration := time.Since(start).Seconds()
-				
-				if err != nil {
-					log.Println(err)
-					// Record API error metrics
-					if metricsCollector != nil {
-						metricsCollector.UpdateAPIMetrics("GetAll", 500, duration, nil)
-					}
-				} else {
-					// Record successful API call metrics
-					if metricsCollector != nil {
-						metricsCollector.UpdateAPIMetrics("GetAll", 200, duration, nil)
-					}
+	interval := time.Tick(time.Second * intervalSec)
+	for {
+		select {
+		case <-interval:
+			start := time.Now()
+			as, err := remoClient.ApplianceService.GetAll(*ctx)
+			duration := time.Since(start).Seconds()
+			
+			if err != nil {
+				log.Println(err)
+				// Record API error metrics
+				if metricsCollector != nil {
+					metricsCollector.UpdateAPIMetrics("GetAll", 500, duration, nil)
 				}
-				
-				for _, a := range as {
-					switch a.Type {
-					case natureremo.ApplianceTypeLight:
-						ap := config.Appliances[a.ID]
-						ap.display.Set(a.Light.State.Power)
-						ap.display.Show()
-						
-						// Update appliance metrics
-						if metricsCollector != nil {
-							powerState := a.Light.State.Power == "on"
-							metricsCollector.UpdateApplianceState(a.ID, a.Nickname, "light", powerState)
-						}
-					}
+			} else {
+				// Record successful API call metrics
+				if metricsCollector != nil {
+					metricsCollector.UpdateAPIMetrics("GetAll", 200, duration, nil)
 				}
 			}
-		}
-	} else {
-		for {
-			interval := time.Tick(time.Second * 5)
-			select {
-			case <-interval:
-				for _, a := range config.Appliances {
-					if a.display == nil {
-						continue
+			
+			for _, a := range as {
+				switch a.Type {
+				case natureremo.ApplianceTypeLight:
+					ap := config.Appliances[a.ID]
+					ap.display.Set(a.Light.State.Power)
+					ap.display.Show()
+					
+					// Update appliance metrics
+					if metricsCollector != nil {
+						powerState := a.Light.State.Power == "on"
+						metricsCollector.UpdateApplianceState(a.ID, a.Nickname, "light", powerState)
 					}
-					a.display.Show()
 				}
 			}
 		}
