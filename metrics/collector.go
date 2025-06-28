@@ -18,7 +18,6 @@ type Collector struct {
 	mu              sync.RWMutex
 	remoClient      *natureremo.Client
 	appliances      map[string]*ApplianceState
-	gpioStates      map[int]bool
 	apiMetrics      *APIMetrics
 	lastUpdateTime  time.Time
 	cacheDuration   time.Duration
@@ -26,8 +25,6 @@ type Collector struct {
 	// Prometheus metric descriptors
 	appliancePowerStateDesc     *prometheus.Desc
 	applianceStateChangeDesc    *prometheus.Desc
-	gpioSwitchPressCountDesc    *prometheus.Desc
-	gpioPinStateDesc            *prometheus.Desc
 	apiRequestTotalDesc         *prometheus.Desc
 	apiRequestDurationDesc      *prometheus.Desc
 	apiRateLimitLimitDesc       *prometheus.Desc
@@ -57,7 +54,6 @@ func NewCollector(client *natureremo.Client, cacheDuration time.Duration) *Colle
 	return &Collector{
 		remoClient:     client,
 		appliances:     make(map[string]*ApplianceState),
-		gpioStates:     make(map[int]bool),
 		apiMetrics:     &APIMetrics{
 			RequestCount:    make(map[string]float64),
 			RequestDuration: make(map[string]float64),
@@ -74,16 +70,6 @@ func NewCollector(client *natureremo.Client, cacheDuration time.Duration) *Colle
 			prometheus.BuildFQName(namespace, "appliance", "state_changes_total"),
 			"Total number of state changes for the appliance",
 			[]string{"id", "name", "type"}, nil,
-		),
-		gpioSwitchPressCountDesc: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "gpio", "switch_press_total"),
-			"Total number of GPIO switch presses",
-			[]string{"pin"}, nil,
-		),
-		gpioPinStateDesc: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "gpio", "pin_state"),
-			"Current state of GPIO pin (1 = high, 0 = low)",
-			[]string{"pin", "type"}, nil,
 		),
 		apiRequestTotalDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "api", "requests_total"),
@@ -122,8 +108,6 @@ func NewCollector(client *natureremo.Client, cacheDuration time.Duration) *Colle
 func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.appliancePowerStateDesc
 	ch <- c.applianceStateChangeDesc
-	ch <- c.gpioSwitchPressCountDesc
-	ch <- c.gpioPinStateDesc
 	ch <- c.apiRequestTotalDesc
 	ch <- c.apiRequestDurationDesc
 	ch <- c.apiRateLimitLimitDesc
@@ -157,30 +141,6 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		)
 	}
 
-	// GPIO metrics
-	for pin, state := range c.gpioStates {
-		stateValue := float64(0)
-		if state {
-			stateValue = 1
-		}
-		ch <- prometheus.MustNewConstMetric(
-			c.gpioPinStateDesc,
-			prometheus.GaugeValue,
-			stateValue,
-			fmt.Sprintf("%d", pin),
-			"switch",
-		)
-	}
-	
-	// GPIO switch press counts
-	for pin, count := range gpioSwitchPressCount {
-		ch <- prometheus.MustNewConstMetric(
-			c.gpioSwitchPressCountDesc,
-			prometheus.CounterValue,
-			count,
-			fmt.Sprintf("%d", pin),
-		)
-	}
 
 	// API metrics
 	for key, count := range c.apiMetrics.RequestCount {
@@ -263,21 +223,6 @@ func (c *Collector) UpdateApplianceState(id, name, appType string, powerOn bool)
 	c.lastUpdateTime = time.Now()
 }
 
-// UpdateGPIOState updates the state of a GPIO pin
-func (c *Collector) UpdateGPIOState(pin int, state bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.gpioStates[pin] = state
-}
-
-// IncrementGPIOSwitchPress increments the switch press counter for a pin
-var gpioSwitchPressCount = make(map[int]float64)
-
-func (c *Collector) IncrementGPIOSwitchPress(pin int) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	gpioSwitchPressCount[pin]++
-}
 
 // UpdateAPIMetrics updates API-related metrics
 func (c *Collector) UpdateAPIMetrics(endpoint string, statusCode int, duration float64, rateLimit *RateLimitInfo) {

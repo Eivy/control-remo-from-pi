@@ -7,7 +7,6 @@ toolchain go1.24.4
 require (
 	github.com/hashicorp/mdns v1.0.5
 	github.com/prometheus/client_golang v1.22.0
-	github.com/stianeikeland/go-rpio v4.2.0+incompatible
 	github.com/tenntenn/natureremo v0.4.0
 	gopkg.in/yaml.v3 v3.0.1
 )

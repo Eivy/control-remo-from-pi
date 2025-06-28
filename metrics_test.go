@@ -26,8 +26,6 @@ func TestMetricsEndpoint(t *testing.T) {
 	
 	// Update some test metrics
 	collector.UpdateApplianceState("test-id", "test-light", "light", true)
-	collector.UpdateGPIOState(22, true)
-	collector.IncrementGPIOSwitchPress(22)
 	collector.UpdateAPIMetrics("GetAll", 200, 0.5, &metrics.RateLimitInfo{
 		Limit:     1000,
 		Remaining: 999,
@@ -51,8 +49,6 @@ func TestMetricsEndpoint(t *testing.T) {
 	expectedMetrics := []string{
 		"remo_appliance_power_state",
 		"remo_appliance_state_changes_total",
-		"remo_gpio_pin_state",
-		"remo_gpio_switch_press_total",
 		"remo_api_requests_total",
 		"remo_api_request_duration_seconds",
 		"remo_api_rate_limit_limit",

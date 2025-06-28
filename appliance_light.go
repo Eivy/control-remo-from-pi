@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 
-	rpio "github.com/stianeikeland/go-rpio"
 	"github.com/tenntenn/natureremo"
 )
 
@@ -38,19 +37,7 @@ func (a ApplianceLight) Send(ctx context.Context, button string) {
 }
 
 func (a ApplianceLight) Show() {
-	if *a.Status == true {
-		if *a.StatusType == StatusTypeSTR {
-			rpio.Pin(*a.StatusPin).Write(rpio.High)
-		} else {
-			rpio.Pin(*a.StatusPin).Write(rpio.Low)
-		}
-	} else {
-		if *a.StatusType == StatusTypeSTR {
-			rpio.Pin(*a.StatusPin).Write(rpio.Low)
-		} else {
-			rpio.Pin(*a.StatusPin).Write(rpio.High)
-		}
-	}
+	// No GPIO operations - status is only maintained in memory
 }
 
 func (a *ApplianceLight) Set(value string) {
