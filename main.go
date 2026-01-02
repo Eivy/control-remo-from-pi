@@ -11,6 +11,9 @@ import (
 
 	"github.com/eivy/control-remo-from-pi/metrics"
 	"github.com/eivy/control-remo-from-pi/mqtt"
+	exporterConfig "github.com/kenfdev/remo-exporter/config"
+	"github.com/kenfdev/remo-exporter/exporter"
+	authHttp "github.com/kenfdev/remo-exporter/http"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tenntenn/natureremo"
@@ -28,14 +31,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// Get Remo secret from environment variable
 	remoSecret := os.Getenv("REMO_SECRET")
 	if remoSecret == "" {
 		log.Fatal("REMO_SECRET environment variable is required")
 	}
 	remoClient = natureremo.NewClient(remoSecret)
-	
+
 	// Initialize MQTT client if broker is configured
 	mqttBroker := os.Getenv("MQTT_BROKER")
 	if mqttBroker != "" {
@@ -47,7 +50,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Invalid MQTT_PORT: %v", err)
 		}
-		
+
 		mqttConfig := mqtt.Config{
 			Broker:   mqttBroker,
 			Port:     mqttPort,
@@ -55,11 +58,11 @@ func main() {
 			Password: os.Getenv("MQTT_PASSWORD"),
 			ClientID: os.Getenv("MQTT_CLIENT_ID"),
 		}
-		
+
 		if mqttConfig.ClientID == "" {
 			mqttConfig.ClientID = "remo-controller"
 		}
-		
+
 		mqttClient = mqtt.NewClient(mqttConfig)
 		if err := mqttClient.Connect(); err != nil {
 			log.Printf("Failed to connect to MQTT broker: %v", err)
@@ -68,20 +71,20 @@ func main() {
 			log.Printf("MQTT client initialized successfully")
 		}
 	}
-	
+
 	// Initialize metrics collector
 	metricsCollector = metrics.NewCollector(remoClient, 60*time.Second)
 	prometheus.MustRegister(metricsCollector)
-	
+
 	ctx := context.Background()
-	
+
 	// Start MQTT command subscription if client is available
 	if mqttClient != nil {
 		if err := mqttClient.SubscribeCommands(ctx, &MQTTCommandHandler{}); err != nil {
 			log.Printf("Failed to subscribe to MQTT commands: %v", err)
 		}
 		mqttClient.StartStatusPublisher(ctx)
-		
+
 		// Update MQTT connection metrics
 		if metricsCollector != nil {
 			go func() {
@@ -93,32 +96,53 @@ func main() {
 			}()
 		}
 	}
-	
+
 	t := config.CheckInterval
 	if t == 0 {
 		t = 20
 	}
 	fmt.Printf("%#v\n", config.Server)
 	if config.Server != nil {
-		go statusCheck(&ctx, t)
+
+		metricsPath := "/metrics"
+		baseURL := "https://api.nature.global"
+		cacheInvalidationSeconds := 60
+		c := &exporterConfig.Config{
+			APIBaseURL:  baseURL,
+			MetricsPath: metricsPath,
+			OAuthToken:  os.Getenv("REMO_TOKEN"),
+			ListenPort:  config.Server.Port,
+
+			CacheInvalidationSeconds: cacheInvalidationSeconds,
+		}
+		authClient := authHttp.NewAuthHttpClient(c.OAuthToken)
+
+		rc, err := exporter.NewRemoClient(c, authClient)
+		if err != nil {
+			log.Fatalf("Failed to create remo client: %v", err)
+		}
+
+		e, err := exporter.NewExporter(c, rc)
+		if err != nil {
+			log.Fatalf("Failed to create exporter: %v", err)
+		}
+
+		prometheus.MustRegister(e)
+
 		http.HandleFunc("/", remoControl)
-		http.Handle("/metrics", promhttp.Handler())
+		http.Handle(c.MetricsPath, promhttp.Handler())
 		http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Server.Port), nil)
-	} else {
-		statusCheck(&ctx, t)
 	}
 }
 
-
-
 func remoControl(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	
+
 	v := r.URL.Query()
 	id := v.Get("id")
 	button := v.Get("button")
 	fmt.Printf("web requested: %s, %s\n", id, button)
-	
+
 	// Default to success, will be updated if error occurs
 	statusCode := 200
 	defer func() {
@@ -136,7 +160,7 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(404)
 			return
 		}
-		
+
 		// Handle timer-based appliances specially
 		if a.Trigger == TriggerTimer {
 			d, err := time.ParseDuration(*a.Timer)
@@ -146,7 +170,7 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(400)
 				return
 			}
-			
+
 			if timer[a.ID] == nil {
 				fmt.Println("TIMER", a.Name, "Start")
 				// Execute ON command and publish status
@@ -156,7 +180,7 @@ func remoControl(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(500)
 					return
 				}
-				
+
 				// Set timer to turn off later
 				timer[a.ID] = time.AfterFunc(d, func() {
 					fmt.Println("TIMER", a.Name, "End")
@@ -199,7 +223,7 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 			start := time.Now()
 			as, err := remoClient.ApplianceService.GetAll(*ctx)
 			duration := time.Since(start).Seconds()
-			
+
 			if err != nil {
 				log.Println(err)
 				// Record API error metrics
@@ -212,28 +236,28 @@ func statusCheck(ctx *context.Context, intervalSec time.Duration) {
 					metricsCollector.UpdateAPIMetrics("GetAll", 200, duration, nil)
 				}
 			}
-			
+
 			for _, a := range as {
 				ap := config.Appliances[a.ID]
-				
+
 				// Get appliance status
 				status, err := getApplianceStatusFromAPIResponse(a)
 				if err != nil {
 					log.Printf("Failed to parse status for appliance %s: %v", a.ID, err)
 					continue
 				}
-				
+
 				// Update display for lights
 				if a.Type == natureremo.ApplianceTypeLight && ap.display != nil {
 					ap.display.Set(a.Light.State.Power)
 					ap.display.Show()
 				}
-				
+
 				// Update appliance metrics
 				if metricsCollector != nil {
 					metricsCollector.UpdateApplianceState(status.ID, status.Name, status.Type, status.PowerOn)
 				}
-				
+
 				// Publish status change to MQTT only if changed
 				publishApplianceStatusIfChanged(status.ID, status.Name, status.Type, status.PowerOn)
 			}
@@ -247,18 +271,18 @@ type MQTTCommandHandler struct{}
 // HandleCommand processes MQTT commands for appliance control
 func (h *MQTTCommandHandler) HandleCommand(cmd mqtt.Command) error {
 	ctx := context.Background()
-	
+
 	// Update MQTT received metrics
 	if metricsCollector != nil {
 		metricsCollector.IncrementMQTTReceived()
 	}
-	
+
 	// Find the appliance by ID
 	appliance, exists := config.Appliances[cmd.ApplianceID]
 	if !exists {
 		return fmt.Errorf("appliance not found: %s", cmd.ApplianceID)
 	}
-	
+
 	// Execute the command and publish status based on actual API response
 	return executeApplianceCommandAndPublishStatus(ctx, appliance, cmd.Button)
 }
@@ -278,7 +302,7 @@ func getApplianceStatus(ctx context.Context, applianceID string) (*ApplianceStat
 	if err != nil {
 		return nil, fmt.Errorf("failed to get appliances: %v", err)
 	}
-	
+
 	for _, a := range appliances {
 		if a.ID == applianceID {
 			status := &ApplianceStatus{
@@ -286,7 +310,7 @@ func getApplianceStatus(ctx context.Context, applianceID string) (*ApplianceStat
 				Name:      a.Nickname,
 				Available: true,
 			}
-			
+
 			switch a.Type {
 			case natureremo.ApplianceTypeLight:
 				status.Type = "light"
@@ -311,11 +335,11 @@ func getApplianceStatus(ctx context.Context, applianceID string) (*ApplianceStat
 				status.Type = "unknown"
 				status.PowerOn = false
 			}
-			
+
 			return status, nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("appliance not found: %s", applianceID)
 }
 
@@ -326,7 +350,7 @@ func getApplianceStatusFromAPIResponse(a *natureremo.Appliance) (*ApplianceStatu
 		Name:      a.Nickname,
 		Available: true,
 	}
-	
+
 	switch a.Type {
 	case natureremo.ApplianceTypeLight:
 		status.Type = "light"
@@ -351,7 +375,7 @@ func getApplianceStatusFromAPIResponse(a *natureremo.Appliance) (*ApplianceStatu
 		status.Type = "unknown"
 		status.PowerOn = false
 	}
-	
+
 	return status, nil
 }
 
@@ -363,7 +387,7 @@ func publishApplianceStatusIfChanged(applianceID, applianceName, applianceType s
 		// State hasn't changed, don't publish
 		return
 	}
-	
+
 	// Update the last known state
 	lastKnownStates[applianceID] = &ApplianceStatus{
 		ID:        applianceID,
@@ -372,7 +396,7 @@ func publishApplianceStatusIfChanged(applianceID, applianceName, applianceType s
 		PowerOn:   powerState,
 		Available: true,
 	}
-	
+
 	// Publish the status change
 	publishApplianceStatusChange(applianceID, applianceName, applianceType, powerState)
 }
@@ -382,7 +406,7 @@ func publishApplianceStatusChange(applianceID, applianceName, applianceType stri
 	if mqttClient == nil {
 		return
 	}
-	
+
 	status := mqtt.Status{
 		ApplianceID:   applianceID,
 		ApplianceName: applianceName,
@@ -390,9 +414,9 @@ func publishApplianceStatusChange(applianceID, applianceName, applianceType stri
 		PowerState:    powerState,
 		Timestamp:     time.Now(),
 	}
-	
+
 	mqttClient.PublishStatusAsync(status)
-	
+
 	// Update MQTT metrics
 	if metricsCollector != nil {
 		metricsCollector.IncrementMQTTPublished()
@@ -402,7 +426,7 @@ func publishApplianceStatusChange(applianceID, applianceName, applianceType stri
 // executeApplianceCommandAndPublishStatus executes a command and publishes the resulting status
 func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance ApplianceData, command string) error {
 	var err error
-	
+
 	// Execute the command
 	switch command {
 	case "on":
@@ -415,15 +439,15 @@ func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance Appl
 		// For other commands, just send the button
 		appliance.sender.Send(ctx, command)
 	}
-	
+
 	if err != nil {
 		log.Printf("Failed to execute command %s for appliance %s: %v", command, appliance.ID, err)
 		return err
 	}
-	
+
 	// Wait a moment for the command to take effect
 	time.Sleep(500 * time.Millisecond)
-	
+
 	// Get the current status and publish to MQTT
 	status, err := getApplianceStatus(ctx, appliance.ID)
 	if err != nil {
@@ -432,10 +456,10 @@ func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance Appl
 		publishFallbackStatus(appliance, command)
 		return nil
 	}
-	
+
 	// Publish the actual status only if changed
 	publishApplianceStatusIfChanged(status.ID, status.Name, status.Type, status.PowerOn)
-	
+
 	return nil
 }
 
@@ -471,7 +495,7 @@ func executeApplianceToggle(ctx context.Context, appliance ApplianceData) error 
 			appliance.sender.Send(ctx, "toggle")
 			return nil
 		}
-		
+
 		if status.PowerOn {
 			return executeApplianceOff(ctx, appliance)
 		} else {
@@ -499,9 +523,6 @@ func publishFallbackStatus(appliance ApplianceData, command string) {
 		// For other commands, assume device is on
 		powerState = true
 	}
-	
+
 	publishApplianceStatusChange(appliance.ID, appliance.Name, string(appliance.Type), powerState)
 }
-
-
-
