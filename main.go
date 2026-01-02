@@ -72,9 +72,30 @@ func main() {
 		}
 	}
 
-	// Initialize metrics collector
-	metricsCollector = metrics.NewCollector(remoClient, 60*time.Second)
-	prometheus.MustRegister(metricsCollector)
+	metricsPath := "/metrics"
+	baseURL := "https://api.nature.global"
+	cacheInvalidationSeconds := 60
+	c := &exporterConfig.Config{
+		APIBaseURL:  baseURL,
+		MetricsPath: metricsPath,
+		OAuthToken:  os.Getenv("REMO_SECRET"),
+		ListenPort:  config.Server.Port,
+
+		CacheInvalidationSeconds: cacheInvalidationSeconds,
+	}
+	authClient := authHttp.NewAuthHttpClient(c.OAuthToken)
+
+	rc, err := exporter.NewRemoClient(c, authClient)
+	if err != nil {
+		log.Fatalf("Failed to create remo client: %v", err)
+	}
+
+	e, err := exporter.NewExporter(c, rc)
+	if err != nil {
+		log.Fatalf("Failed to create exporter: %v", err)
+	}
+
+	prometheus.MustRegister(e)
 
 	ctx := context.Background()
 
@@ -84,17 +105,6 @@ func main() {
 			log.Printf("Failed to subscribe to MQTT commands: %v", err)
 		}
 		mqttClient.StartStatusPublisher(ctx)
-
-		// Update MQTT connection metrics
-		if metricsCollector != nil {
-			go func() {
-				for {
-					time.Sleep(10 * time.Second)
-					connected := mqttClient.IsConnected()
-					metricsCollector.UpdateMQTTMetrics(0, 0, connected)
-				}
-			}()
-		}
 	}
 
 	t := config.CheckInterval
@@ -103,31 +113,6 @@ func main() {
 	}
 	fmt.Printf("%#v\n", config.Server)
 	if config.Server != nil {
-
-		metricsPath := "/metrics"
-		baseURL := "https://api.nature.global"
-		cacheInvalidationSeconds := 60
-		c := &exporterConfig.Config{
-			APIBaseURL:  baseURL,
-			MetricsPath: metricsPath,
-			OAuthToken:  os.Getenv("REMO_TOKEN"),
-			ListenPort:  config.Server.Port,
-
-			CacheInvalidationSeconds: cacheInvalidationSeconds,
-		}
-		authClient := authHttp.NewAuthHttpClient(c.OAuthToken)
-
-		rc, err := exporter.NewRemoClient(c, authClient)
-		if err != nil {
-			log.Fatalf("Failed to create remo client: %v", err)
-		}
-
-		e, err := exporter.NewExporter(c, rc)
-		if err != nil {
-			log.Fatalf("Failed to create exporter: %v", err)
-		}
-
-		prometheus.MustRegister(e)
 
 		http.HandleFunc("/", remoControl)
 		http.Handle(c.MetricsPath, promhttp.Handler())
