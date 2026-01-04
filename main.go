@@ -268,8 +268,36 @@ func (h *MQTTCommandHandler) HandleCommand(cmd mqtt.Command) error {
 		return fmt.Errorf("appliance not found: %s", cmd.ApplianceID)
 	}
 
-	// Execute the command and publish status based on actual API response
-	return executeApplianceCommandAndPublishStatus(ctx, appliance, cmd.Button)
+	if appliance.Trigger == TriggerTimer {
+		d, err := time.ParseDuration(*appliance.Timer)
+		if err != nil {
+			log.Printf("Invalid timer duration for appliance %s: %v", appliance.ID, err)
+			return err
+		}
+
+		if timer[appliance.ID] == nil {
+			fmt.Println("TIMER", appliance.Name, "Start")
+			// Execute ON command and publish status
+			if err := executeApplianceCommandAndPublishStatus(ctx, appliance, "on"); err != nil {
+				log.Printf("Failed to execute timer ON command: %v", err)
+				return err
+			}
+
+			// Set timer to turn off later
+			timer[appliance.ID] = time.AfterFunc(d, func() {
+				fmt.Println("TIMER", appliance.Name, "End")
+				executeApplianceCommandAndPublishStatus(context.Background(), appliance, "off")
+				timer[appliance.ID] = nil
+			})
+		} else {
+			fmt.Println("TIMER", appliance.Name, "Restart")
+			timer[appliance.ID].Reset(d)
+		}
+		return nil
+	} else {
+		// Execute the command and publish status based on actual API response
+		return executeApplianceCommandAndPublishStatus(ctx, appliance, cmd.Button)
+	}
 }
 
 // ApplianceStatus represents the current status of an appliance
