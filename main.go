@@ -409,20 +409,19 @@ func publishApplianceStatusChange(applianceID, applianceName, applianceType stri
 }
 
 // executeApplianceCommandAndPublishStatus executes a command and publishes the resulting status
-func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance ApplianceData, command string) error {
-	var err error
-
+func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance ApplianceData, command string) (err error) {
+	var s *natureremo.LightState
 	// Execute the command
 	switch command {
 	case "on":
-		err = executeApplianceOn(ctx, appliance)
+		s, err = executeApplianceOn(ctx, appliance)
 	case "off":
-		err = executeApplianceOff(ctx, appliance)
+		s, err = executeApplianceOff(ctx, appliance)
 	case "toggle":
-		err = executeApplianceToggle(ctx, appliance)
+		s, err = executeApplianceToggle(ctx, appliance)
 	default:
 		// For other commands, just send the button
-		appliance.sender.Send(ctx, command)
+		s, err = appliance.sender.Send(ctx, command)
 	}
 
 	if err != nil {
@@ -434,12 +433,27 @@ func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance Appl
 	time.Sleep(500 * time.Millisecond)
 
 	// Get the current status and publish to MQTT
-	status, err := getApplianceStatus(ctx, appliance.ID)
-	if err != nil {
-		log.Printf("Failed to get status for appliance %s after command: %v", appliance.ID, err)
-		// Fallback: publish expected status based on command
-		publishFallbackStatus(appliance, command)
-		return nil
+	status := &ApplianceStatus{
+		ID:        appliance.ID,
+		Name:      appliance.Name,
+		Available: true,
+	}
+
+	switch appliance.Type {
+	case ApplianceTypeLight:
+		status.Type = "light"
+		status.PowerOn = s.Power == "on"
+	case ApplianceTypeTV:
+		status.Type = "tv"
+		// For TV, check if it has any available buttons (indicates it's responsive)
+		status.PowerOn = false
+	case ApplianceTypeIR:
+		status.Type = "ir"
+		// For IR devices, assume they're available if they have signals
+		status.PowerOn = false
+	default:
+		status.Type = "unknown"
+		status.PowerOn = false
 	}
 
 	// Publish the actual status only if changed
@@ -449,36 +463,37 @@ func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance Appl
 }
 
 // executeApplianceOn turns on an appliance and returns any error
-func executeApplianceOn(ctx context.Context, appliance ApplianceData) error {
+func executeApplianceOn(ctx context.Context, appliance ApplianceData) (status *natureremo.LightState, err error) {
 	switch appliance.Type {
 	case ApplianceTypeLight:
-		appliance.sender.On(ctx)
+		return appliance.sender.On(ctx)
+	case ApplianceTypeLocal:
+		return appliance.sender.On(ctx)
 	default:
-		appliance.sender.Send(ctx, "on")
+		return appliance.sender.Send(ctx, "on")
 	}
-	return nil
 }
 
 // executeApplianceOff turns off an appliance and returns any error
-func executeApplianceOff(ctx context.Context, appliance ApplianceData) error {
+func executeApplianceOff(ctx context.Context, appliance ApplianceData) (status *natureremo.LightState, err error) {
 	switch appliance.Type {
 	case ApplianceTypeLight:
-		appliance.sender.Off(ctx)
+		return appliance.sender.Off(ctx)
+	case ApplianceTypeLocal:
+		return appliance.sender.Off(ctx)
 	default:
-		appliance.sender.Send(ctx, "off")
+		return appliance.sender.Send(ctx, "off")
 	}
-	return nil
 }
 
 // executeApplianceToggle toggles an appliance state
-func executeApplianceToggle(ctx context.Context, appliance ApplianceData) error {
+func executeApplianceToggle(ctx context.Context, appliance ApplianceData) (status *natureremo.LightState, err error) {
 	if appliance.Type == ApplianceTypeLight {
 		// For lights, get current status and toggle
 		status, err := getApplianceStatus(ctx, appliance.ID)
 		if err != nil {
 			// Fallback: just send toggle command
-			appliance.sender.Send(ctx, "toggle")
-			return nil
+			return appliance.sender.Send(ctx, "toggle")
 		}
 
 		if status.PowerOn {
@@ -488,9 +503,8 @@ func executeApplianceToggle(ctx context.Context, appliance ApplianceData) error 
 		}
 	} else {
 		// For other types, just send toggle command
-		appliance.sender.Send(ctx, "toggle")
+		return appliance.sender.Send(ctx, "toggle")
 	}
-	return nil
 }
 
 // publishFallbackStatus publishes expected status when API status check fails

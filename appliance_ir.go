@@ -12,14 +12,17 @@ type ApplianceIR struct {
 	OffSignal string `yaml:"OffSignal"`
 }
 
-func (a ApplianceIR) On(ctx context.Context) {
-	a.Send(ctx, a.OnSignal)
+func (a ApplianceIR) On(ctx context.Context) (*natureremo.LightState, error) {
+	_, err := a.Send(ctx, a.OnSignal)
+	return nil, err
 }
 
-func (a ApplianceIR) Off(ctx context.Context) {
-	a.Send(ctx, a.OffSignal)
+func (a ApplianceIR) Off(ctx context.Context) (*natureremo.LightState, error) {
+	_, err := a.Send(ctx, a.OffSignal)
+	return nil, err
 }
 
-func (a ApplianceIR) Send(ctx context.Context, button string) {
-	remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: button})
+func (a ApplianceIR) Send(ctx context.Context, button string) (*natureremo.LightState, error) {
+	err := remoClient.SignalService.Send(ctx, &natureremo.Signal{ID: button})
+	return nil, err
 }

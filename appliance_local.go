@@ -13,15 +13,18 @@ type ApplianceLocal struct {
 	OffLocal natureremo.IRSignal `yaml:"OffLocal"`
 }
 
-func (a ApplianceLocal) On(ctx context.Context) {
+func (a ApplianceLocal) On(ctx context.Context) (*natureremo.LightState, error) {
 	c := natureremo.NewLocalClient(a.IP)
-	c.Emit(ctx, &a.OnLocal)
+	err := c.Emit(ctx, &a.OnLocal)
+	return nil, err
 }
 
-func (a ApplianceLocal) Off(ctx context.Context) {
+func (a ApplianceLocal) Off(ctx context.Context) (*natureremo.LightState, error) {
 	c := natureremo.NewLocalClient(a.IP)
-	c.Emit(ctx, &a.OffLocal)
+	err := c.Emit(ctx, &a.OffLocal)
+	return nil, err
 }
 
-func (a ApplianceLocal) Send(ctx context.Context, button string) {
+func (a ApplianceLocal) Send(ctx context.Context, button string) (*natureremo.LightState, error) {
+	return nil, nil
 }

@@ -29,9 +29,9 @@ type ApplianceData struct {
 }
 
 type Sender interface {
-	On(ctx context.Context)
-	Off(ctx context.Context)
-	Send(ctx context.Context, button string)
+	On(ctx context.Context) (*natureremo.LightState, error)
+	Off(ctx context.Context) (*natureremo.LightState, error)
+	Send(ctx context.Context, button string) (*natureremo.LightState, error)
 }
 
 type Display interface {

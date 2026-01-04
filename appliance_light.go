@@ -13,24 +13,24 @@ type ApplianceLight struct {
 	Status    *bool   // true is power on
 }
 
-func (a ApplianceLight) On(ctx context.Context) {
+func (a ApplianceLight) On(ctx context.Context) (*natureremo.LightState, error) {
 	if a.OnButton == nil {
-		a.Send(ctx, "on")
+		return a.Send(ctx, "on")
 	} else {
-		a.Send(ctx, *a.OnButton)
+		return a.Send(ctx, *a.OnButton)
 	}
 }
 
-func (a ApplianceLight) Off(ctx context.Context) {
+func (a ApplianceLight) Off(ctx context.Context) (*natureremo.LightState, error) {
 	if a.OffButton == nil {
-		a.Send(ctx, "off")
+		return a.Send(ctx, "off")
 	} else {
-		a.Send(ctx, *a.OffButton)
+		return a.Send(ctx, *a.OffButton)
 	}
 }
 
-func (a ApplianceLight) Send(ctx context.Context, button string) {
-	remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: a.ID}, button)
+func (a ApplianceLight) Send(ctx context.Context, button string) (*natureremo.LightState, error) {
+	return remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: a.ID}, button)
 }
 
 func (a ApplianceLight) Show() {
