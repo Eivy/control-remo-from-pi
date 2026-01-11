@@ -21,7 +21,6 @@ var config pi.Config
 var timer = make(map[string]*time.Timer)
 var mqttClient *mqtt.Client
 var lastKnownStates = make(map[string]*ApplianceStatus)
-var remoClient *natureremo.Client
 
 func main() {
 	var err error
@@ -35,7 +34,8 @@ func main() {
 	if remoSecret == "" {
 		log.Fatal("REMO_SECRET environment variable is required")
 	}
-	remoClient = natureremo.NewClient(remoSecret)
+	remoClient := natureremo.NewClient(remoSecret)
+	pi.SetRemoClient(remoClient)
 
 	// Initialize MQTT client if broker is configured
 	mqttBroker := os.Getenv("MQTT_BROKER")
@@ -97,14 +97,6 @@ func main() {
 
 	prometheus.MustRegister(e)
 
-	// Start MQTT command subscription if client is available
-	if mqttClient != nil {
-		if err := mqttClient.SubscribeCommands(ctx, &MQTTCommandHandler{}); err != nil {
-			log.Printf("Failed to subscribe to MQTT commands: %v", err)
-		}
-		mqttClient.StartStatusPublisher(ctx)
-	}
-
 	http.Handle(c.MetricsPath, promhttp.Handler())
 	http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Server.Port), nil)
 }
@@ -161,53 +153,6 @@ type ApplianceStatus struct {
 	Type      string
 	PowerOn   bool
 	Available bool
-}
-
-// getApplianceStatus retrieves the current status of an appliance from Nature Remo API
-func getApplianceStatus(ctx context.Context, applianceID string) (*ApplianceStatus, error) {
-	appliances, err := remoClient.ApplianceService.GetAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get appliances: %v", err)
-	}
-
-	for _, a := range appliances {
-		if a.ID == applianceID {
-			status := &ApplianceStatus{
-				ID:        a.ID,
-				Name:      a.Nickname,
-				Available: true,
-			}
-
-			switch a.Type {
-			case natureremo.ApplianceTypeLight:
-				status.Type = "light"
-				status.PowerOn = a.Light.State.Power == "on"
-			case natureremo.ApplianceTypeTV:
-				status.Type = "tv"
-				// For TV, check if it has any available buttons (indicates it's responsive)
-				status.PowerOn = len(a.TV.Buttons) > 0
-			case natureremo.ApplianceTypeIR:
-				status.Type = "ir"
-				// For IR devices, assume they're available if they have signals
-				status.PowerOn = len(a.Signals) > 0
-			case natureremo.ApplianceTypeAirCon:
-				status.Type = "aircon"
-				// For AC, check if it's on based on operation mode
-				if a.AirConSettings != nil {
-					status.PowerOn = a.AirConSettings.OperationMode != ""
-				} else {
-					status.PowerOn = false
-				}
-			default:
-				status.Type = "unknown"
-				status.PowerOn = false
-			}
-
-			return status, nil
-		}
-	}
-
-	return nil, fmt.Errorf("appliance not found: %s", applianceID)
 }
 
 // getApplianceStatusFromAPIResponse extracts status from Nature Remo API response

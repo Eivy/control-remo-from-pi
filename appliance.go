@@ -6,6 +6,8 @@ import (
 	"github.com/cormoran/natureremo"
 )
 
+var remoClient *natureremo.Client
+
 type ApplianceType string
 
 const (
@@ -39,4 +41,8 @@ type Display interface {
 	Show()
 	Get() error
 	Set(string)
+}
+
+func SetRemoClient(client *natureremo.Client) {
+	remoClient = client
 }
