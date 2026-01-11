@@ -62,8 +62,7 @@ func main() {
 
 	mqttClient = mqtt.NewClient(mqttConfig)
 	if err := mqttClient.Connect(); err != nil {
-		log.Printf("Failed to connect to MQTT broker: %v", err)
-		mqttClient = nil
+		log.Fatalf("Failed to connect to MQTT broker: %v", err)
 	} else {
 		log.Printf("MQTT client initialized successfully")
 	}
@@ -86,9 +85,9 @@ func (h *MQTTStatusHandler) HandleStatus(sts mqtt.Status) error {
 	}
 	out := rpio.Pin(*appliance.StatusPin)
 	if sts.PowerState {
-		out.Write(rpio.High)
-	} else {
 		out.Write(rpio.Low)
+	} else {
+		out.Write(rpio.High)
 	}
 	return nil
 	// Execute the command and publish status based on actual API response

@@ -97,6 +97,14 @@ func main() {
 
 	prometheus.MustRegister(e)
 
+	// Start MQTT command subscription if client is available
+	if mqttClient != nil {
+		if err := mqttClient.SubscribeCommands(ctx, &MQTTCommandHandler{}); err != nil {
+			log.Printf("Failed to subscribe to MQTT commands: %v", err)
+		}
+		mqttClient.StartStatusPublisher(ctx)
+	}
+
 	http.Handle(c.MetricsPath, promhttp.Handler())
 	http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Server.Port), nil)
 }
