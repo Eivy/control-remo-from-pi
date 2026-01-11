@@ -1,4 +1,4 @@
-package main
+package controlremo
 
 import (
 	"context"
@@ -30,7 +30,8 @@ func (a ApplianceLight) Off(ctx context.Context) (*natureremo.LightState, error)
 }
 
 func (a ApplianceLight) Send(ctx context.Context, button string) (*natureremo.LightState, error) {
-	return remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: a.ID}, button)
+	// return remoClient.ApplianceService.SendLightSignal(ctx, &natureremo.Appliance{ID: a.ID}, button)
+	return nil, nil
 }
 
 func (a ApplianceLight) Show() {

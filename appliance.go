@@ -1,12 +1,10 @@
-package main
+package controlremo
 
 import (
 	"context"
 
 	"github.com/cormoran/natureremo"
 )
-
-var remoClient *natureremo.Client
 
 type ApplianceType string
 
@@ -19,13 +17,16 @@ const (
 
 // ApplianceData is ApplianceData
 type ApplianceData struct {
-	ID      string        `yaml:"ID"`
-	Name    string        `yaml:"Name"`
-	Type    ApplianceType `yaml:"Type"`
-	Trigger Trigger       `yaml:"Trigger"`
-	Timer   *string       `yaml:"Timer"`
-	sender  Sender
-	display Display
+	ID           string        `yaml:"ID"`
+	Name         string        `yaml:"Name"`
+	Type         ApplianceType `yaml:"Type"`
+	SwitchPin    *int          `yaml:"SwitchPin"`
+	StatusPin    *int          `yaml:"StatusPin"`
+	Trigger      Trigger       `yaml:"Trigger"`
+	Timer        *string       `yaml:"Timer"`
+	ConditionPin *int          `yaml:"ConditionPin"`
+	Sender       Sender
+	Display      Display
 }
 
 type Sender interface {

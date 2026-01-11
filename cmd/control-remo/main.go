@@ -10,20 +10,22 @@ import (
 	"time"
 
 	"github.com/cormoran/natureremo"
+	pi "github.com/eivy/control-remo-from-pi"
 	"github.com/eivy/control-remo-from-pi/metrics"
 	"github.com/eivy/control-remo-from-pi/mqtt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-var config Config
+var config pi.Config
 var timer = make(map[string]*time.Timer)
 var mqttClient *mqtt.Client
 var lastKnownStates = make(map[string]*ApplianceStatus)
+var remoClient *natureremo.Client
 
 func main() {
 	var err error
-	config, err = ReadConfig()
+	config, err = pi.ReadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -112,7 +114,7 @@ func (h *MQTTCommandHandler) HandleCommand(cmd mqtt.Command) error {
 		return fmt.Errorf("appliance not found: %s", cmd.ApplianceID)
 	}
 
-	if appliance.Trigger == TriggerTimer {
+	if appliance.Trigger == pi.TriggerTimer {
 		d, err := time.ParseDuration(*appliance.Timer)
 		if err != nil {
 			log.Printf("Invalid timer duration for appliance %s: %v", appliance.ID, err)
@@ -276,7 +278,7 @@ func publishApplianceStatusChange(applianceID, applianceName, applianceType stri
 }
 
 // executeApplianceCommandAndPublishStatus executes a command and publishes the resulting status
-func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance ApplianceData, command string) (err error) {
+func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance pi.ApplianceData, command string) (err error) {
 	var s *natureremo.LightState
 	// Execute the command
 	switch command {
@@ -288,7 +290,7 @@ func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance Appl
 		s, err = executeApplianceToggle(ctx, appliance)
 	default:
 		// For other commands, just send the button
-		s, err = appliance.sender.Send(ctx, command)
+		s, err = appliance.Sender.Send(ctx, command)
 	}
 
 	if err != nil {
@@ -307,14 +309,14 @@ func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance Appl
 	}
 
 	switch appliance.Type {
-	case ApplianceTypeLight:
+	case pi.ApplianceTypeLight:
 		status.Type = "light"
 		status.PowerOn = s.Power == "on"
-	case ApplianceTypeTV:
+	case pi.ApplianceTypeTV:
 		status.Type = "tv"
 		// For TV, check if it has any available buttons (indicates it's responsive)
 		status.PowerOn = false
-	case ApplianceTypeIR:
+	case pi.ApplianceTypeIR:
 		status.Type = "ir"
 		// For IR devices, assume they're available if they have signals
 		status.PowerOn = false
@@ -330,32 +332,32 @@ func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance Appl
 }
 
 // executeApplianceOn turns on an appliance and returns any error
-func executeApplianceOn(ctx context.Context, appliance ApplianceData) (status *natureremo.LightState, err error) {
+func executeApplianceOn(ctx context.Context, appliance pi.ApplianceData) (status *natureremo.LightState, err error) {
 	switch appliance.Type {
-	case ApplianceTypeLight:
-		return appliance.sender.On(ctx)
-	case ApplianceTypeLocal:
-		return appliance.sender.On(ctx)
+	case pi.ApplianceTypeLight:
+		return appliance.Sender.On(ctx)
+	case pi.ApplianceTypeLocal:
+		return appliance.Sender.On(ctx)
 	default:
-		return appliance.sender.Send(ctx, "on")
+		return appliance.Sender.Send(ctx, "on")
 	}
 }
 
 // executeApplianceOff turns off an appliance and returns any error
-func executeApplianceOff(ctx context.Context, appliance ApplianceData) (status *natureremo.LightState, err error) {
+func executeApplianceOff(ctx context.Context, appliance pi.ApplianceData) (status *natureremo.LightState, err error) {
 	switch appliance.Type {
-	case ApplianceTypeLight:
-		return appliance.sender.Off(ctx)
-	case ApplianceTypeLocal:
-		return appliance.sender.Off(ctx)
+	case pi.ApplianceTypeLight:
+		return appliance.Sender.Off(ctx)
+	case pi.ApplianceTypeLocal:
+		return appliance.Sender.Off(ctx)
 	default:
-		return appliance.sender.Send(ctx, "off")
+		return appliance.Sender.Send(ctx, "off")
 	}
 }
 
 // executeApplianceToggle toggles an appliance state
-func executeApplianceToggle(ctx context.Context, appliance ApplianceData) (status *natureremo.LightState, err error) {
-	if appliance.Type == ApplianceTypeLight {
+func executeApplianceToggle(ctx context.Context, appliance pi.ApplianceData) (status *natureremo.LightState, err error) {
+	if appliance.Type == pi.ApplianceTypeLight {
 		status := lastKnownStates[appliance.ID]
 		if status.PowerOn {
 			return executeApplianceOff(ctx, appliance)
@@ -364,12 +366,12 @@ func executeApplianceToggle(ctx context.Context, appliance ApplianceData) (statu
 		}
 	} else {
 		// For other types, just send toggle command
-		return appliance.sender.Send(ctx, "toggle")
+		return appliance.Sender.Send(ctx, "toggle")
 	}
 }
 
 // publishFallbackStatus publishes expected status when API status check fails
-func publishFallbackStatus(appliance ApplianceData, command string) {
+func publishFallbackStatus(appliance pi.ApplianceData, command string) {
 	var powerState bool
 	switch command {
 	case "on":

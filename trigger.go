@@ -1,4 +1,4 @@
-package main
+package controlremo
 
 // Trigger is trigger type
 type Trigger string

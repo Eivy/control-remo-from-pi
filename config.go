@@ -1,4 +1,4 @@
-package main
+package controlremo
 
 import (
 	"flag"
@@ -64,7 +64,7 @@ func ReadConfig() (config Config, err error) {
 		}
 		switch v.Type {
 		case ApplianceTypeIR:
-			tmp.sender = ApplianceIR{
+			tmp.Sender = ApplianceIR{
 				ApplianceData: tmp,
 				OnSignal:      v.OnSignal,
 				OffSignal:     v.OffSignal,
@@ -76,17 +76,17 @@ func ReadConfig() (config Config, err error) {
 				OffButton:     v.OffButton,
 				Status:        v.Status,
 			}
-			tmp.sender = l
-			tmp.display = &l
+			tmp.Sender = l
+			tmp.Display = &l
 		case ApplianceTypeLocal:
-			tmp.sender = ApplianceLocal{
+			tmp.Sender = ApplianceLocal{
 				ApplianceData: tmp,
 				IP:            v.IP,
 				OnLocal:       v.OnLocal,
 				OffLocal:      v.OffLocal,
 			}
 		case ApplianceTypeTV:
-			tmp.sender = ApplianceTV{
+			tmp.Sender = ApplianceTV{
 				ApplianceData: tmp,
 				OnButton:      v.OnButton,
 				OffButton:     v.OffButton,

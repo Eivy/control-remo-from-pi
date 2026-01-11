@@ -3,9 +3,9 @@ ENV GO111MODULE=on
 
 COPY . /workdir
 WORKDIR /workdir
-RUN go build
+RUN go build  -o control-remo cmd/control-remo/main.go
 
 FROM alpine:latest
-COPY --from=build /workdir/control-remo-from-pi/ /usr/local/bin
-CMD ["control-remo-from-pi"]
+COPY --from=build /workdir/control-remo/ /usr/local/bin
+CMD ["control-remo"]
 LABEL org.opencontainers.image.source=https://github.com/Eivy/control-remo-from-pi

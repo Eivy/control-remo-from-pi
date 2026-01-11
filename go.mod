@@ -7,8 +7,8 @@ toolchain go1.24.4
 require (
 	github.com/cormoran/natureremo v0.0.0-20230102111054-143890eb5a72
 	github.com/eclipse/paho.mqtt.golang v1.5.0
-	github.com/kenfdev/remo-exporter v0.8.1
 	github.com/prometheus/client_golang v1.22.0
+	github.com/stianeikeland/go-rpio v4.2.0+incompatible
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -21,7 +21,6 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
-	github.com/sirupsen/logrus v1.9.0 // indirect
 	github.com/tenntenn/natureremo v0.4.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
