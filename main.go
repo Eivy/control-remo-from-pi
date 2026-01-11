@@ -12,16 +12,12 @@ import (
 	"github.com/cormoran/natureremo"
 	"github.com/eivy/control-remo-from-pi/metrics"
 	"github.com/eivy/control-remo-from-pi/mqtt"
-	exporterConfig "github.com/kenfdev/remo-exporter/config"
-	"github.com/kenfdev/remo-exporter/exporter"
-	authHttp "github.com/kenfdev/remo-exporter/http"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var config Config
 var timer = make(map[string]*time.Timer)
-var metricsCollector *metrics.Collector
 var mqttClient *mqtt.Client
 var lastKnownStates = make(map[string]*ApplianceStatus)
 
@@ -82,7 +78,7 @@ func main() {
 	metricsPath := "/metrics"
 	baseURL := "https://api.nature.global"
 	cacheInvalidationSeconds := 60
-	c := &exporterConfig.Config{
+	c := &metrics.Config{
 		APIBaseURL:  baseURL,
 		MetricsPath: metricsPath,
 		OAuthToken:  os.Getenv("REMO_SECRET"),
@@ -90,157 +86,16 @@ func main() {
 
 		CacheInvalidationSeconds: cacheInvalidationSeconds,
 	}
-	authClient := authHttp.NewAuthHttpClient(c.OAuthToken)
 
-	rc, err := exporter.NewRemoClient(c, authClient)
-	if err != nil {
-		log.Fatalf("Failed to create remo client: %v", err)
-	}
-
-	e, err := exporter.NewExporter(c, rc)
+	e, err := metrics.NewExporter(c, remoClient)
 	if err != nil {
 		log.Fatalf("Failed to create exporter: %v", err)
 	}
 
 	prometheus.MustRegister(e)
 
-	fmt.Printf("%#v\n", config.Server)
-	if config.Server != nil {
-
-		http.HandleFunc("/", remoControl)
-		http.Handle(c.MetricsPath, promhttp.Handler())
-		http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Server.Port), nil)
-	}
-}
-
-func remoControl(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-
-	v := r.URL.Query()
-	id := v.Get("id")
-	button := v.Get("button")
-	fmt.Printf("web requested: %s, %s\n", id, button)
-
-	// Default to success, will be updated if error occurs
-	statusCode := 200
-	defer func() {
-		if metricsCollector != nil {
-			duration := time.Since(start).Seconds()
-			metricsCollector.UpdateAPIMetrics("remoControl", statusCode, duration, nil)
-		}
-	}()
-	if button != "" {
-		ctx := context.Background()
-		a, ok := config.Appliances[id]
-		if !ok {
-			fmt.Println("missing")
-			statusCode = 404
-			w.WriteHeader(404)
-			return
-		}
-
-		// Handle timer-based appliances specially
-		if a.Trigger == TriggerTimer {
-			d, err := time.ParseDuration(*a.Timer)
-			if err != nil {
-				log.Printf("Invalid timer duration for appliance %s: %v", a.ID, err)
-				statusCode = 400
-				w.WriteHeader(400)
-				return
-			}
-
-			if timer[a.ID] == nil {
-				fmt.Println("TIMER", a.Name, "Start")
-				// Execute ON command and publish status
-				if err := executeApplianceCommandAndPublishStatus(ctx, a, "on"); err != nil {
-					log.Printf("Failed to execute timer ON command: %v", err)
-					statusCode = 500
-					w.WriteHeader(500)
-					return
-				}
-
-				// Set timer to turn off later
-				timer[a.ID] = time.AfterFunc(d, func() {
-					fmt.Println("TIMER", a.Name, "End")
-					executeApplianceCommandAndPublishStatus(context.Background(), a, "off")
-					timer[a.ID] = nil
-				})
-			} else {
-				fmt.Println("TIMER", a.Name, "Restart")
-				timer[a.ID].Reset(d)
-			}
-		} else {
-			// Execute command and publish status based on actual API response
-			if err := executeApplianceCommandAndPublishStatus(ctx, a, button); err != nil {
-				log.Printf("Failed to execute command %s for appliance %s: %v", button, a.ID, err)
-				statusCode = 500
-				w.WriteHeader(500)
-				return
-			}
-		}
-	} else {
-		a, ok := config.Appliances[id]
-		if !ok {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if a.Type != ApplianceTypeLight {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		// Status check removed as GPIO functionality was removed
-		w.WriteHeader(http.StatusNotImplemented)
-	}
-}
-
-func statusCheck(ctx *context.Context, intervalSec time.Duration) {
-	interval := time.Tick(time.Second * intervalSec)
-	for {
-		select {
-		case <-interval:
-			start := time.Now()
-			as, err := remoClient.ApplianceService.GetAll(*ctx)
-			duration := time.Since(start).Seconds()
-
-			if err != nil {
-				log.Println(err)
-				// Record API error metrics
-				if metricsCollector != nil {
-					metricsCollector.UpdateAPIMetrics("GetAll", 500, duration, nil)
-				}
-			} else {
-				// Record successful API call metrics
-				if metricsCollector != nil {
-					metricsCollector.UpdateAPIMetrics("GetAll", 200, duration, nil)
-				}
-			}
-
-			for _, a := range as {
-				ap := config.Appliances[a.ID]
-
-				// Get appliance status
-				status, err := getApplianceStatusFromAPIResponse(a)
-				if err != nil {
-					log.Printf("Failed to parse status for appliance %s: %v", a.ID, err)
-					continue
-				}
-
-				// Update display for lights
-				if a.Type == natureremo.ApplianceTypeLight && ap.display != nil {
-					ap.display.Set(a.Light.State.Power)
-					ap.display.Show()
-				}
-
-				// Update appliance metrics
-				if metricsCollector != nil {
-					metricsCollector.UpdateApplianceState(status.ID, status.Name, status.Type, status.PowerOn)
-				}
-
-				// Publish status change to MQTT only if changed
-				publishApplianceStatusIfChanged(status.ID, status.Name, status.Type, status.PowerOn)
-			}
-		}
-	}
+	http.Handle(c.MetricsPath, promhttp.Handler())
+	http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Server.Port), nil)
 }
 
 // MQTTCommandHandler handles MQTT commands
@@ -249,11 +104,6 @@ type MQTTCommandHandler struct{}
 // HandleCommand processes MQTT commands for appliance control
 func (h *MQTTCommandHandler) HandleCommand(cmd mqtt.Command) error {
 	ctx := context.Background()
-
-	// Update MQTT received metrics
-	if metricsCollector != nil {
-		metricsCollector.IncrementMQTTReceived()
-	}
 
 	// Find the appliance by ID
 	appliance, exists := config.Appliances[cmd.ApplianceID]
@@ -422,11 +272,6 @@ func publishApplianceStatusChange(applianceID, applianceName, applianceType stri
 	}
 
 	mqttClient.PublishStatusAsync(status)
-
-	// Update MQTT metrics
-	if metricsCollector != nil {
-		metricsCollector.IncrementMQTTPublished()
-	}
 }
 
 // executeApplianceCommandAndPublishStatus executes a command and publishes the resulting status
