@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cormoran/natureremo"
 	"github.com/eivy/control-remo-from-pi/metrics"
 	"github.com/eivy/control-remo-from-pi/mqtt"
 	exporterConfig "github.com/kenfdev/remo-exporter/config"
@@ -16,7 +17,6 @@ import (
 	authHttp "github.com/kenfdev/remo-exporter/http"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/tenntenn/natureremo"
 )
 
 var config Config
@@ -70,6 +70,13 @@ func main() {
 		} else {
 			log.Printf("MQTT client initialized successfully")
 		}
+		ctx := context.Background()
+
+		// Start MQTT command subscription if client is available
+		if err := mqttClient.SubscribeCommands(ctx, &MQTTCommandHandler{}); err != nil {
+			log.Printf("Failed to subscribe to MQTT commands: %v", err)
+		}
+		mqttClient.StartStatusPublisher(ctx)
 	}
 
 	metricsPath := "/metrics"
@@ -97,20 +104,6 @@ func main() {
 
 	prometheus.MustRegister(e)
 
-	ctx := context.Background()
-
-	// Start MQTT command subscription if client is available
-	if mqttClient != nil {
-		if err := mqttClient.SubscribeCommands(ctx, &MQTTCommandHandler{}); err != nil {
-			log.Printf("Failed to subscribe to MQTT commands: %v", err)
-		}
-		mqttClient.StartStatusPublisher(ctx)
-	}
-
-	t := config.CheckInterval
-	if t == 0 {
-		t = 20
-	}
 	fmt.Printf("%#v\n", config.Server)
 	if config.Server != nil {
 
@@ -517,13 +510,7 @@ func executeApplianceOff(ctx context.Context, appliance ApplianceData) (status *
 // executeApplianceToggle toggles an appliance state
 func executeApplianceToggle(ctx context.Context, appliance ApplianceData) (status *natureremo.LightState, err error) {
 	if appliance.Type == ApplianceTypeLight {
-		// For lights, get current status and toggle
-		status, err := getApplianceStatus(ctx, appliance.ID)
-		if err != nil {
-			// Fallback: just send toggle command
-			return appliance.sender.Send(ctx, "toggle")
-		}
-
+		status := lastKnownStates[appliance.ID]
 		if status.PowerOn {
 			return executeApplianceOff(ctx, appliance)
 		} else {

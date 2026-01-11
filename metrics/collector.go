@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cormoran/natureremo"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/tenntenn/natureremo"
 )
 
 const (
@@ -15,26 +15,26 @@ const (
 )
 
 type Collector struct {
-	mu              sync.RWMutex
-	remoClient      *natureremo.Client
-	appliances      map[string]*ApplianceState
-	apiMetrics      *APIMetrics
-	mqttMetrics     *MQTTMetrics
-	lastUpdateTime  time.Time
-	cacheDuration   time.Duration
+	mu             sync.RWMutex
+	remoClient     *natureremo.Client
+	appliances     map[string]*ApplianceState
+	apiMetrics     *APIMetrics
+	mqttMetrics    *MQTTMetrics
+	lastUpdateTime time.Time
+	cacheDuration  time.Duration
 
 	// Prometheus metric descriptors
-	appliancePowerStateDesc     *prometheus.Desc
-	applianceStateChangeDesc    *prometheus.Desc
-	apiRequestTotalDesc         *prometheus.Desc
-	apiRequestDurationDesc      *prometheus.Desc
-	apiRateLimitLimitDesc       *prometheus.Desc
-	apiRateLimitRemainingDesc   *prometheus.Desc
-	apiRateLimitResetDesc       *prometheus.Desc
-	mqttMessagesPublishedDesc   *prometheus.Desc
-	mqttMessagesReceivedDesc    *prometheus.Desc
-	mqttConnectionStatusDesc    *prometheus.Desc
-	lastUpdateTimestampDesc     *prometheus.Desc
+	appliancePowerStateDesc   *prometheus.Desc
+	applianceStateChangeDesc  *prometheus.Desc
+	apiRequestTotalDesc       *prometheus.Desc
+	apiRequestDurationDesc    *prometheus.Desc
+	apiRateLimitLimitDesc     *prometheus.Desc
+	apiRateLimitRemainingDesc *prometheus.Desc
+	apiRateLimitResetDesc     *prometheus.Desc
+	mqttMessagesPublishedDesc *prometheus.Desc
+	mqttMessagesReceivedDesc  *prometheus.Desc
+	mqttConnectionStatusDesc  *prometheus.Desc
+	lastUpdateTimestampDesc   *prometheus.Desc
 }
 
 type ApplianceState struct {
@@ -47,11 +47,11 @@ type ApplianceState struct {
 }
 
 type APIMetrics struct {
-	RequestCount     map[string]float64 // key: "endpoint:status_code"
-	RequestDuration  map[string]float64 // key: "endpoint"
-	RateLimitLimit   float64
-	RateLimitRemain  float64
-	RateLimitReset   float64
+	RequestCount    map[string]float64 // key: "endpoint:status_code"
+	RequestDuration map[string]float64 // key: "endpoint"
+	RateLimitLimit  float64
+	RateLimitRemain float64
+	RateLimitReset  float64
 }
 
 type MQTTMetrics struct {
@@ -62,13 +62,13 @@ type MQTTMetrics struct {
 
 func NewCollector(client *natureremo.Client, cacheDuration time.Duration) *Collector {
 	return &Collector{
-		remoClient:     client,
-		appliances:     make(map[string]*ApplianceState),
-		apiMetrics:     &APIMetrics{
+		remoClient: client,
+		appliances: make(map[string]*ApplianceState),
+		apiMetrics: &APIMetrics{
 			RequestCount:    make(map[string]float64),
 			RequestDuration: make(map[string]float64),
 		},
-		mqttMetrics: &MQTTMetrics{},
+		mqttMetrics:   &MQTTMetrics{},
 		cacheDuration: cacheDuration,
 
 		// Define metric descriptors
@@ -170,7 +170,6 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		)
 	}
 
-
 	// API metrics
 	for key, count := range c.apiMetrics.RequestCount {
 		// Parse key format: "endpoint:status"
@@ -268,7 +267,6 @@ func (c *Collector) UpdateApplianceState(id, name, appType string, powerOn bool)
 	}
 	c.lastUpdateTime = time.Now()
 }
-
 
 // UpdateAPIMetrics updates API-related metrics
 func (c *Collector) UpdateAPIMetrics(endpoint string, statusCode int, duration float64, rateLimit *RateLimitInfo) {

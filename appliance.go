@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/tenntenn/natureremo"
+	"github.com/cormoran/natureremo"
 )
 
 var remoClient *natureremo.Client

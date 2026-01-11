@@ -8,7 +8,7 @@ import (
 
 	"time"
 
-	"github.com/tenntenn/natureremo"
+	"github.com/cormoran/natureremo"
 	"gopkg.in/yaml.v3"
 )
 
