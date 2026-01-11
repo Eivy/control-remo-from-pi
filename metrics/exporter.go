@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/cormoran/natureremo"
+	"github.com/eivy/control-remo-from-pi/mqtt"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -104,13 +106,15 @@ var (
 
 // Exporter collects ECS clusters metrics
 type Exporter struct {
-	client *natureremo.Client // Custom ECS client to get information from the clusters
+	client     *natureremo.Client // Custom ECS client to get information from the clusters
+	mqttClient *mqtt.Client
 }
 
 // NewExporter returns an initialized exporter
-func NewExporter(config *Config, client *natureremo.Client) (*Exporter, error) {
+func NewExporter(config *Config, client *natureremo.Client, mqttClient *mqtt.Client) (*Exporter, error) {
 	return &Exporter{
-		client: client,
+		client:     client,
+		mqttClient: mqttClient,
 	}, nil
 }
 
@@ -151,6 +155,18 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	if err != nil {
 		fmt.Printf("Processing the metrics failed: %v", err)
 		return
+	}
+
+	for _, a := range appliances {
+		if a.Type == natureremo.ApplianceTypeLight {
+			e.mqttClient.PublishStatusAsync(mqtt.Status{
+				ApplianceID:   a.ID,
+				ApplianceName: a.Nickname,
+				Type:          string(a.Type),
+				PowerState:    a.Light.State.Power == "on",
+				Timestamp:     time.Now(),
+			})
+		}
 	}
 
 }

@@ -37,43 +37,44 @@ func main() {
 
 	// Initialize MQTT client if broker is configured
 	mqttBroker := os.Getenv("MQTT_BROKER")
-	if mqttBroker != "" {
-		mqttPortStr := os.Getenv("MQTT_PORT")
-		if mqttPortStr == "" {
-			mqttPortStr = "1883"
-		}
-		mqttPort, err := strconv.Atoi(mqttPortStr)
-		if err != nil {
-			log.Fatalf("Invalid MQTT_PORT: %v", err)
-		}
-
-		mqttConfig := mqtt.Config{
-			Broker:   mqttBroker,
-			Port:     mqttPort,
-			Username: os.Getenv("MQTT_USERNAME"),
-			Password: os.Getenv("MQTT_PASSWORD"),
-			ClientID: os.Getenv("MQTT_CLIENT_ID"),
-		}
-
-		if mqttConfig.ClientID == "" {
-			mqttConfig.ClientID = "remo-controller"
-		}
-
-		mqttClient = mqtt.NewClient(mqttConfig)
-		if err := mqttClient.Connect(); err != nil {
-			log.Printf("Failed to connect to MQTT broker: %v", err)
-			mqttClient = nil
-		} else {
-			log.Printf("MQTT client initialized successfully")
-		}
-		ctx := context.Background()
-
-		// Start MQTT command subscription if client is available
-		if err := mqttClient.SubscribeCommands(ctx, &MQTTCommandHandler{}); err != nil {
-			log.Printf("Failed to subscribe to MQTT commands: %v", err)
-		}
-		mqttClient.StartStatusPublisher(ctx)
+	if mqttBroker == "" {
+		log.Fatal("set MQTT_BROKER")
 	}
+	mqttPortStr := os.Getenv("MQTT_PORT")
+	if mqttPortStr == "" {
+		mqttPortStr = "1883"
+	}
+	mqttPort, err := strconv.Atoi(mqttPortStr)
+	if err != nil {
+		log.Fatalf("Invalid MQTT_PORT: %v", err)
+	}
+
+	mqttConfig := mqtt.Config{
+		Broker:   mqttBroker,
+		Port:     mqttPort,
+		Username: os.Getenv("MQTT_USERNAME"),
+		Password: os.Getenv("MQTT_PASSWORD"),
+		ClientID: os.Getenv("MQTT_CLIENT_ID"),
+	}
+
+	if mqttConfig.ClientID == "" {
+		mqttConfig.ClientID = "remo-controller"
+	}
+
+	mqttClient = mqtt.NewClient(mqttConfig)
+	if err := mqttClient.Connect(); err != nil {
+		log.Printf("Failed to connect to MQTT broker: %v", err)
+		mqttClient = nil
+	} else {
+		log.Printf("MQTT client initialized successfully")
+	}
+	ctx := context.Background()
+
+	// Start MQTT command subscription if client is available
+	if err := mqttClient.SubscribeCommands(ctx, &MQTTCommandHandler{}); err != nil {
+		log.Printf("Failed to subscribe to MQTT commands: %v", err)
+	}
+	mqttClient.StartStatusPublisher(ctx)
 
 	metricsPath := "/metrics"
 	baseURL := "https://api.nature.global"
@@ -87,7 +88,7 @@ func main() {
 		CacheInvalidationSeconds: cacheInvalidationSeconds,
 	}
 
-	e, err := metrics.NewExporter(c, remoClient)
+	e, err := metrics.NewExporter(c, remoClient, mqttClient)
 	if err != nil {
 		log.Fatalf("Failed to create exporter: %v", err)
 	}
