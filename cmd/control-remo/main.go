@@ -311,8 +311,8 @@ func executeApplianceOff(ctx context.Context, appliance pi.ApplianceData) (statu
 // executeApplianceToggle toggles an appliance state
 func executeApplianceToggle(ctx context.Context, appliance pi.ApplianceData) (status *natureremo.LightState, err error) {
 	if appliance.Type == pi.ApplianceTypeLight {
-		status := lastKnownStates[appliance.ID]
-		if status.PowerOn {
+		status, ok := lastKnownStates[appliance.ID]
+		if ok && status.PowerOn {
 			return executeApplianceOff(ctx, appliance)
 		} else {
 			return executeApplianceOn(ctx, appliance)
