@@ -76,6 +76,11 @@ func main() {
 	if err := mqttClient.SubscribeCommands(ctx, &MQTTCommandHandler{}); err != nil {
 		log.Printf("Failed to subscribe to MQTT commands: %v", err)
 	}
+	// Start MQTT command subscription if client is available
+	if err := mqttClient.SubscribeStatus(ctx, &MQTTStatusHandler{}); err != nil {
+		log.Printf("Failed to subscribe to MQTT commands: %v", err)
+	}
+
 	mqttClient.StartStatusPublisher(ctx)
 
 	metricsPath := "/metrics"
@@ -99,6 +104,19 @@ func main() {
 
 	http.Handle(c.MetricsPath, promhttp.Handler())
 	http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Server.Port), nil)
+}
+
+type MQTTStatusHandler struct{}
+
+func (h *MQTTStatusHandler) HandleStatus(sts mqtt.Status) error {
+	lastKnownStates[sts.ApplianceID] = &ApplianceStatus{
+		ID:        sts.ApplianceID,
+		Name:      sts.ApplianceName,
+		PowerOn:   sts.PowerState,
+		Type:      sts.Type,
+		Available: true,
+	}
+	return nil
 }
 
 // MQTTCommandHandler handles MQTT commands

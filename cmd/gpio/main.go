@@ -29,7 +29,7 @@ func main() {
 		fmt.Println(a.Name)
 		in := rpio.Pin(*a.SwitchPin)
 		in.Mode(rpio.Input)
-		go pinCheck(*a.SwitchPin, in, a, ch)
+		go pinCheck(in, a, ch)
 		out := rpio.Pin(*a.StatusPin)
 		out.Mode(rpio.Output)
 	}
@@ -90,21 +90,17 @@ func (h *MQTTStatusHandler) HandleStatus(sts mqtt.Status) error {
 		out.Write(rpio.High)
 	}
 	return nil
-	// Execute the command and publish status based on actual API response
 }
 
-func pinCheck(num int, in rpio.Pin, a pi.ApplianceData, ch chan pi.ApplianceData) {
+func pinCheck(in rpio.Pin, a pi.ApplianceData, ch chan pi.ApplianceData) {
 	before := in.Read()
 	for {
-		select {
-		default:
-			tmp := in.Read()
-			if before != tmp {
-				ch <- a
-				before = tmp
-			}
-			time.Sleep(time.Millisecond * 100)
+		tmp := in.Read()
+		if before != tmp {
+			ch <- a
 		}
+		before = tmp
+		time.Sleep(time.Millisecond * 100)
 	}
 }
 
