@@ -211,13 +211,6 @@ func getApplianceStatusFromAPIResponse(a *natureremo.Appliance) (*ApplianceStatu
 
 // publishApplianceStatusIfChanged publishes appliance status to MQTT only if changed
 func publishApplianceStatusIfChanged(applianceID, applianceName, applianceType string, powerState bool) {
-	// Check if the state has actually changed
-	lastState, exists := lastKnownStates[applianceID]
-	if exists && lastState.PowerOn == powerState {
-		// State hasn't changed, don't publish
-		return
-	}
-
 	// Update the last known state
 	lastKnownStates[applianceID] = &ApplianceStatus{
 		ID:        applianceID,
