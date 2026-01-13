@@ -23,17 +23,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	rpio.Open()
-	ch := make(chan pi.ApplianceData)
-	for _, a := range config.Appliances {
-		fmt.Println(a.Name)
-		in := rpio.Pin(*a.SwitchPin)
-		in.Mode(rpio.Input)
-		go pinCheck(in, a, ch)
-		out := rpio.Pin(*a.StatusPin)
-		out.Mode(rpio.Output)
-	}
-
 	// Initialize MQTT client if broker is configured
 	mqttBroker := os.Getenv("MQTT_BROKER")
 	if mqttBroker == "" {
@@ -72,6 +61,18 @@ func main() {
 	if err := mqttClient.SubscribeStatus(ctx, &MQTTStatusHandler{}); err != nil {
 		log.Printf("Failed to subscribe to MQTT commands: %v", err)
 	}
+
+	rpio.Open()
+	ch := make(chan pi.ApplianceData)
+	for _, a := range config.Appliances {
+		fmt.Println(a.Name)
+		in := rpio.Pin(*a.SwitchPin)
+		in.Mode(rpio.Input)
+		go pinCheck(in, a, ch)
+		out := rpio.Pin(*a.StatusPin)
+		out.Mode(rpio.Output)
+	}
+
 	buttonHandler(ctx, ch, mqttClient)
 }
 
@@ -97,9 +98,11 @@ func pinCheck(in rpio.Pin, a pi.ApplianceData, ch chan pi.ApplianceData) {
 	for {
 		tmp := in.Read()
 		if before != tmp {
-			ch <- a
+			if tmp == rpio.High {
+				ch <- a
+			}
+			before = tmp
 		}
-		before = tmp
 		time.Sleep(time.Millisecond * 100)
 	}
 }
