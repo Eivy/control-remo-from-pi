@@ -87,11 +87,10 @@ func main() {
 	baseURL := "https://api.nature.global"
 	cacheInvalidationSeconds := 60
 	c := &metrics.Config{
-		APIBaseURL:  baseURL,
-		MetricsPath: metricsPath,
-		OAuthToken:  os.Getenv("REMO_SECRET"),
-		ListenPort:  config.Server.Port,
-
+		APIBaseURL:               baseURL,
+		MetricsPath:              metricsPath,
+		OAuthToken:               os.Getenv("REMO_SECRET"),
+		ListenPort:               config.Server.Port,
 		CacheInvalidationSeconds: cacheInvalidationSeconds,
 	}
 
@@ -238,7 +237,7 @@ func publishApplianceStatusChange(applianceID, applianceName, applianceType stri
 		Timestamp:     time.Now(),
 	}
 
-	mqttClient.PublishStatusAsync(status)
+	mqttClient.PublishStatus(status)
 }
 
 // executeApplianceCommandAndPublishStatus executes a command and publishes the resulting status
@@ -283,7 +282,7 @@ func executeApplianceCommandAndPublishStatus(ctx context.Context, appliance pi.A
 	case pi.ApplianceTypeIR:
 		status.Type = "ir"
 		// For IR devices, assume they're available if they have signals
-		status.PowerOn = false
+		status.PowerOn = command == "on"
 	default:
 		status.Type = "unknown"
 		status.PowerOn = false

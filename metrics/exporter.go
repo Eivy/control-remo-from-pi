@@ -159,7 +159,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 	for _, a := range appliances {
 		if a.Type == natureremo.ApplianceTypeLight {
-			e.mqttClient.PublishStatusAsync(mqtt.Status{
+			e.mqttClient.PublishStatus(mqtt.Status{
 				ApplianceID:   a.ID,
 				ApplianceName: a.Nickname,
 				Type:          string(a.Type),
